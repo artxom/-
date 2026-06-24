@@ -65,27 +65,27 @@ class DatabaseManager:
             logger.error(f"Error getting schema for {table_name} in {schema}: {e}")
             return None
 
-    def get_schema_tree(self) -> Dict[str, List[str]]:
+    def get_schemas(self) -> List[str]:
         if not self.engine:
-            return {}
+            return []
         try:
             insp = inspect(self.engine)
             schemas = insp.get_schema_names()
-            tree = {}
-            
-            # Common system schemas to ignore
             system_schemas = {'information_schema', 'pg_catalog', 'pg_toast'}
-            
-            for sch in schemas:
-                if sch in system_schemas or sch.startswith('pg_temp') or sch.startswith('pg_toast_temp'):
-                    continue
-                
-                tables = insp.get_table_names(schema=sch)
-                tree[sch] = tables
-            return tree
+            return [sch for sch in schemas if sch not in system_schemas and not sch.startswith('pg_temp') and not sch.startswith('pg_toast_temp')]
         except SQLAlchemyError as e:
-            logger.error(f"Error getting schema tree: {e}")
-            return {}
+            logger.error(f"Error getting schemas: {e}")
+            return []
+
+    def get_tables(self, schema: str) -> List[str]:
+        if not self.engine:
+            return []
+        try:
+            insp = inspect(self.engine)
+            return insp.get_table_names(schema=schema)
+        except SQLAlchemyError as e:
+            logger.error(f"Error getting tables for {schema}: {e}")
+            return []
 
     def get_table_relations(self, table_name: str, schema: str = None) -> Optional[Dict[str, Any]]:
         if not self.engine:

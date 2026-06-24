@@ -26,7 +26,7 @@ class AppConfig(BaseModel):
     db_config: DBConfig
     api_key: str
     base_url: str = "https://api.deepseek.com/v1"
-    model: str = "deepseek-v4-pro"
+    model: str = "deepseek-flash"
 
 CONFIG_FILE = "app_config.json"
 
@@ -135,10 +135,17 @@ def execute_sql(req: ExecuteRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/api/db/schema-tree")
-def get_schema_tree():
+@app.get("/api/db/schemas")
+def get_schemas():
     try:
-        return {"status": "success", "data": db_manager.get_schema_tree()}
+        return {"status": "success", "data": db_manager.get_schemas()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/db/schema/{schema_name}/tables")
+def get_tables(schema_name: str):
+    try:
+        return {"status": "success", "data": db_manager.get_tables(schema_name)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

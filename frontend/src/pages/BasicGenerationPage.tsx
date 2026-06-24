@@ -28,13 +28,15 @@ const btnIconStyle = {
 };
 
 const BasicGenerationPage = () => {
-  const [schemaTree, setSchemaTree] = useState<Record<string, string[]>>({});
+  const [schemas, setSchemas] = useState<string[]>([]);
+  const [selectedSchema, setSelectedSchema] = useState<string>('');
+  const [tables, setTables] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
   const [selectedTable, setSelectedTable] = useState<SelectedTable | null>(null);
   const [tableFields, setTableFields] = useState<any[]>([]);
   
   const [loadingTree, setLoadingTree] = useState(true);
+  const [loadingTables, setLoadingTables] = useState(false);
   const [errorStatus, setErrorStatus] = useState<string>('');
   
   const [executionResult, setExecutionResult] = useState('');
@@ -97,35 +99,57 @@ const BasicGenerationPage = () => {
     }
   }, [messages, currentAssistantMessage, proposals, generateStatus, activeTab]);
 
-  // Fetch schema tree on load
+  // Fetch schemas on load
   useEffect(() => {
-    const fetchSchemaTree = async () => {
+    const fetchSchemas = async () => {
       try {
         setLoadingTree(true);
         setErrorStatus('');
-        const res = await axios.get('/api/db/schema-tree');
+        const res = await axios.get('/api/db/schemas');
         if (res.data.status === 'success') {
-          const tree = res.data.data;
-          if (Object.keys(tree).length === 0) {
+          const list = res.data.data;
+          if (list.length === 0) {
             setErrorStatus('暂无数据库 Schema 数据，请确认数据库连接。');
           } else {
-            setSchemaTree(tree);
-            if (tree['public']) {
-              setExpandedSchemas(new Set(['public']));
-            } else if (Object.keys(tree).length > 0) {
-              setExpandedSchemas(new Set([Object.keys(tree)[0]]));
+            setSchemas(list);
+            if (list.includes('public')) {
+              setSelectedSchema('public');
+            } else if (list.length > 0) {
+              setSelectedSchema(list[0]);
             }
           }
         }
       } catch (e: any) {
         setErrorStatus('无法获取数据库 Schema，请先在配置页检查连接。');
-        console.error("Failed to fetch schema tree", e);
+        console.error("Failed to fetch schemas", e);
       } finally {
         setLoadingTree(false);
       }
     };
-    fetchSchemaTree();
+    fetchSchemas();
   }, []);
+
+  // Fetch tables when selectedSchema changes
+  useEffect(() => {
+    if (!selectedSchema) {
+      setTables([]);
+      return;
+    }
+    const fetchTables = async () => {
+      try {
+        setLoadingTables(true);
+        const res = await axios.get(`/api/db/schema/${selectedSchema}/tables`);
+        if (res.data.status === 'success') {
+          setTables(res.data.data);
+        }
+      } catch (e) {
+        console.error("Failed to fetch tables", e);
+      } finally {
+        setLoadingTables(false);
+      }
+    };
+    fetchTables();
+  }, [selectedSchema]);
 
   // Fetch target table fields
   useEffect(() => {
@@ -173,15 +197,24 @@ const BasicGenerationPage = () => {
     }
   }, [sourceSchema, sourceTableName]);
 
-  const toggleSchema = (schema: string) => {
-    const newExpanded = new Set(expandedSchemas);
-    if (newExpanded.has(schema)) {
-      newExpanded.delete(schema);
-    } else {
-      newExpanded.add(schema);
+  const [sourceTables, setSourceTables] = useState<string[]>([]);
+  useEffect(() => {
+    if (!sourceSchema) {
+      setSourceTables([]);
+      return;
     }
-    setExpandedSchemas(newExpanded);
-  };
+    const fetchSourceTables = async () => {
+      try {
+        const res = await axios.get(`/api/db/schema/${sourceSchema}/tables`);
+        if (res.data.status === 'success') {
+          setSourceTables(res.data.data);
+        }
+      } catch (e) {
+        console.error("Failed to fetch source tables", e);
+      }
+    };
+    fetchSourceTables();
+  }, [sourceSchema]);
 
   const handleExecute = async (sql: string) => {
     try {
@@ -234,7 +267,8 @@ const BasicGenerationPage = () => {
     let actualPrompt = userMsg;
     // For the first message, inject the system constraint
     if (history.length === 0) {
-      actualPrompt = `[系统指令: 你当前的任务是配合用户对表 \`${target}\` 的 \`${aiTargetField}\` 字段进行数据清洗和更新规划。请注意以下核心原则：\n1. 绝对禁止使用 INSERT 语句。\n2. 你的最终方案必须是针对存量数据的 UPDATE 语句。\n3. 你可以与用户对话澄清需求，当你理解需求后，使用 propose_modification 工具输出清洗方案。]\n\n用户输入: ${userMsg}`;
+      let fieldInfo = tableFields.map(f => `${f.name} (${f.type})`).join(', ');
+      actualPrompt = `[系统指令: 你当前的任务是配合用户对表 \`${target}\` 的 \`${aiTargetField}\` 字段进行数据清洗和更新规划。已知该表的字段包含: ${fieldInfo}。\n请注意以下核心原则：\n1. 绝对禁止使用 INSERT 语句。\n2. 你的最终方案必须是针对存量数据的 UPDATE 语句。\n3. 因为表结构已提供，请务必跳过额外的数据探查(get_table_schema)，直接理解需求并使用 propose_modification 工具输出方案。]\n\n用户输入: ${userMsg}`;
     }
 
     try {
@@ -319,64 +353,49 @@ const BasicGenerationPage = () => {
         />
         <div style={{ height: '1px', backgroundColor: 'var(--border)' }}></div>
         
+        {/* Schema Selector */}
+        <select 
+          className="form-select" 
+          value={selectedSchema} 
+          onChange={(e) => setSelectedSchema(e.target.value)}
+          style={{ padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)', backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', marginBottom: '0.5rem' }}
+        >
+          <option value="">-- 选择 Schema --</option>
+          {schemas.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        
         {loadingTree ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)' }}>
-            <Loader2 className="spinner" size={16} /> 加载中...
+            <Loader2 className="spinner" size={16} /> 加载 Schema...
           </div>
         ) : errorStatus ? (
           <div style={{ color: 'var(--danger)', fontSize: '0.9rem' }}>{errorStatus}</div>
+        ) : loadingTables ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'var(--accent)' }}>
+            <Loader2 className="spinner" size={16} /> 加载表结构...
+          </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.2rem' }}>
-            {Object.keys(schemaTree).sort().map(schema => {
-              const tables = schemaTree[schema];
-              const filteredTables = searchQuery 
-                ? tables.filter(t => t.toLowerCase().includes(searchQuery.toLowerCase()))
-                : tables;
-                
-              if (searchQuery && filteredTables.length === 0) return null;
-              
-              const isExpanded = expandedSchemas.has(schema) || searchQuery.length > 0;
-
-              return (
-              <div key={schema}>
+            {tables
+              .filter(t => !searchQuery || t.toLowerCase().includes(searchQuery.toLowerCase()))
+              .map(table => (
                 <div 
-                  onClick={() => toggleSchema(schema)}
+                  key={table}
+                  onClick={() => setSelectedTable({ schema: selectedSchema, table })}
                   style={{ 
                     display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', 
-                    padding: '0.4rem', borderRadius: '6px', 
-                    backgroundColor: isExpanded ? 'rgba(255,255,255,0.05)' : 'transparent'
+                    padding: '0.3rem 0.5rem', borderRadius: '4px', fontSize: '0.9rem',
+                    backgroundColor: selectedTable?.schema === selectedSchema && selectedTable?.table === table ? 'var(--primary)' : 'transparent',
+                    color: selectedTable?.schema === selectedSchema && selectedTable?.table === table ? 'white' : 'var(--text-muted)'
                   }}
                 >
-                  {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
-                  <Folder size={16} style={{ color: 'var(--accent)' }} />
-                  <span style={{ fontWeight: 'bold' }}>{schema}</span>
+                  <FileText size={14} />
+                  {table}
                 </div>
-                
-                {isExpanded && (
-                  <div style={{ paddingLeft: '1.8rem', display: 'flex', flexDirection: 'column', gap: '0.2rem', marginTop: '0.2rem' }}>
-                    {filteredTables.length === 0 ? (
-                      <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>无表数据</span>
-                    ) : (
-                      filteredTables.sort().map(table => (
-                        <div 
-                          key={table}
-                          onClick={() => setSelectedTable({ schema, table })}
-                          style={{ 
-                            display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', 
-                            padding: '0.3rem 0.5rem', borderRadius: '4px', fontSize: '0.9rem',
-                            backgroundColor: selectedTable?.schema === schema && selectedTable?.table === table ? 'var(--primary)' : 'transparent',
-                            color: selectedTable?.schema === schema && selectedTable?.table === table ? 'white' : 'var(--text-muted)'
-                          }}
-                        >
-                          <FileText size={14} />
-                          {table}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
-            )})}
+              ))}
+            {tables.length === 0 && selectedSchema && !loadingTables && (
+              <span style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic', padding: '0.5rem' }}>该 Schema 下无表数据</span>
+            )}
           </div>
         )}
       </div>
@@ -441,7 +460,7 @@ const BasicGenerationPage = () => {
 
             {/* Tab 1: Dual Table Update */}
             {activeTab === 'dual' && (
-              <div className="glass-panel animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+              <div className="glass-panel animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1, minHeight: 0, overflowY: 'auto' }}>
                 <h3 style={{ margin: 0, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><ArrowRightLeft size={20}/> 配置表间关联性</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '-1rem' }}>通过关联另一张主表的数据，批量刷新当前目标表中的数据。</p>
                 
@@ -450,11 +469,11 @@ const BasicGenerationPage = () => {
                   <span style={{color: 'var(--text-muted)', minWidth: '80px'}}>主表 (源):</span>
                   <select className="form-select" value={sourceSchema} onChange={e => { setSourceSchema(e.target.value); setSourceTableName(''); }} style={selectStyle}>
                     <option value="">-- 选择 Schema --</option>
-                    {Object.keys(schemaTree).sort().map(s => <option key={s} value={s}>{s}</option>)}
+                    {schemas.map(s => <option key={s} value={s}>{s}</option>)}
                   </select>
                   <select className="form-select" value={sourceTableName} onChange={e => setSourceTableName(e.target.value)} disabled={!sourceSchema} style={selectStyle}>
                     <option value="">-- 选择 Table --</option>
-                    {sourceSchema && schemaTree[sourceSchema] && schemaTree[sourceSchema].sort().map(t => <option key={t} value={t}>{t}</option>)}
+                    {sourceTables.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
 
@@ -541,7 +560,7 @@ const BasicGenerationPage = () => {
 
             {/* Tab 2: AI Single Column Update */}
             {activeTab === 'ai' && (
-              <div className="glass-panel animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1 }}>
+              <div className="glass-panel animate-fade-in" style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', flex: 1, minHeight: 0 }}>
                 <h3 style={{ margin: 0, color: 'var(--primary)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Sparkles size={20}/> AI 单字段造数</h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '-1rem' }}>利用大模型对单列数据进行智能批量清洗、脱敏或重新生成。你可以与它多次对话以修正规则。</p>
 

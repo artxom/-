@@ -81,7 +81,7 @@ const ConfigPage = () => {
   };
 
   return (
-    <div className="glass-panel animate-fade-in" style={{ maxWidth: '800px', margin: '0 auto' }}>
+    <div className="glass-panel animate-fade-in" style={{ maxWidth: '800px', margin: '0 auto', overflowY: 'auto', maxHeight: '100%' }}>
       <h1>环境与大模型配置</h1>
 
       <div style={{ marginTop: '2rem', display: 'grid', gap: '2rem', gridTemplateColumns: '1fr 1fr' }}>

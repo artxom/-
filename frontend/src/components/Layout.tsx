@@ -46,7 +46,7 @@ const Layout = () => {
   ];
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', overflow: 'hidden' }}>
+    <div style={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
       <aside 
         className="glass-panel" 
         style={{ 
@@ -150,7 +150,7 @@ const Layout = () => {
         </nav>
       </aside>
 
-      <main style={{ flex: 1, padding: '1.5rem 1.5rem 1.5rem 0', overflowY: 'auto' }}>
+      <main style={{ flex: 1, padding: '1.5rem 1.5rem 1.5rem 0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Outlet />
       </main>
     </div>

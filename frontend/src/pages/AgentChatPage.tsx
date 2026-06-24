@@ -23,11 +23,27 @@ interface ToolExecution {
 }
 
 const AgentChatPage = () => {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [history, setHistory] = useState<any[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const saved = sessionStorage.getItem('agentChat_messages');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [history, setHistory] = useState<any[]>(() => {
+    const saved = sessionStorage.getItem('agentChat_history');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
-  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>(() => {
+    const saved = sessionStorage.getItem('agentChat_proposals');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    sessionStorage.setItem('agentChat_messages', JSON.stringify(messages));
+    sessionStorage.setItem('agentChat_history', JSON.stringify(history));
+    sessionStorage.setItem('agentChat_proposals', JSON.stringify(proposals));
+  }, [messages, history, proposals]);
+
   const [executionResult, setExecutionResult] = useState('');
   
   // Streaming states
