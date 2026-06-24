@@ -81,8 +81,7 @@ class DatabaseManager:
                     continue
                 
                 tables = insp.get_table_names(schema=sch)
-                if tables:
-                    tree[sch] = tables
+                tree[sch] = tables
             return tree
         except SQLAlchemyError as e:
             logger.error(f"Error getting schema tree: {e}")
@@ -106,12 +105,21 @@ class DatabaseManager:
     def execute_query(self, sql: str, params: dict = None) -> List[Dict[str, Any]]:
         if not self.engine:
             raise Exception("Database not connected")
-        with self.engine.connect() as conn:
-            result = conn.execute(text(sql), params or {})
-            if result.returns_rows:
-                return [dict(row._mapping) for row in result]
-            else:
-                conn.commit()
+        
+        sql_upper = sql.strip().upper()
+        needs_autocommit = sql_upper.startswith("CREATE DATABASE") or sql_upper.startswith("DROP DATABASE") or sql_upper.startswith("VACUUM")
+        
+        if needs_autocommit:
+            with self.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+                result = conn.execute(text(sql), params or {})
                 return [{"status": "success", "rowcount": result.rowcount}]
+        else:
+            with self.engine.connect() as conn:
+                result = conn.execute(text(sql), params or {})
+                if result.returns_rows:
+                    return [dict(row._mapping) for row in result]
+                else:
+                    conn.commit()
+                    return [{"status": "success", "rowcount": result.rowcount}]
 
 db_manager = DatabaseManager()

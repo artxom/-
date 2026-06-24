@@ -36,6 +36,8 @@ const AgentChatPage = () => {
   const [activeTools, setActiveTools] = useState<ToolExecution[]>([]);
   const [discoveredKnowledge, setDiscoveredKnowledge] = useState<string[]>([]);
   const [selectedKnowledge, setSelectedKnowledge] = useState<Set<number>>(new Set());
+  const [enableExtraction, setEnableExtraction] = useState(true);
+  const [goalMode, setGoalMode] = useState(false);
   
   const dialogRef = useRef<HTMLDialogElement>(null);
   const chatBottomRef = useRef<HTMLDivElement>(null);
@@ -60,7 +62,7 @@ const AgentChatPage = () => {
       const response = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userMsg.content, history: history })
+        body: JSON.stringify({ prompt: userMsg.content, history: history, extract_knowledge: enableExtraction, goal_mode: goalMode })
       });
 
       if (!response.body) throw new Error("ReadableStream not yet supported in this browser.");
@@ -263,7 +265,7 @@ const AgentChatPage = () => {
                 <label key={i} style={{ display: 'flex', gap: '0.5rem', cursor: 'pointer', fontSize: '0.95rem', color: 'var(--text)' }}>
                   <input 
                     type="checkbox" 
-                    style={{ marginTop: '0.2rem' }}
+                    style={{ width: '1.2rem', height: '1.2rem', flexShrink: 0, marginTop: '0.1rem', cursor: 'pointer' }}
                     checked={selectedKnowledge.has(i)}
                     onChange={(e) => {
                       const newSet = new Set(selectedKnowledge);
@@ -290,16 +292,44 @@ const AgentChatPage = () => {
         <div ref={chatBottomRef} />
       </div>
 
-      <div className="glass-panel" style={{ padding: '1rem', display: 'flex', gap: '1rem' }}>
-        <input 
-          style={{ margin: 0 }} 
+      <div className="glass-panel" style={{ padding: '1rem', display: 'flex', gap: '1rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', whiteSpace: 'nowrap', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+            <input 
+              type="checkbox" 
+              checked={enableExtraction} 
+              onChange={e => setEnableExtraction(e.target.checked)} 
+              disabled={loading}
+              style={{ width: '1.1rem', height: '1.1rem', cursor: 'pointer' }}
+            />
+            归纳知识
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', whiteSpace: 'nowrap', color: goalMode ? 'var(--accent)' : 'var(--text-muted)', fontSize: '0.9rem', fontWeight: goalMode ? 'bold' : 'normal' }}>
+            <input 
+              type="checkbox" 
+              checked={goalMode} 
+              onChange={e => setGoalMode(e.target.checked)} 
+              disabled={loading}
+              style={{ width: '1.1rem', height: '1.1rem', cursor: 'pointer' }}
+            />
+            目标模式
+          </label>
+        </div>
+        <textarea 
+          style={{ margin: 0, flex: 1, minHeight: '40px', maxHeight: '120px', resize: 'vertical', padding: '0.8rem', borderRadius: '8px', border: '1px solid var(--border)', backgroundColor: 'rgba(0,0,0,0.2)', color: 'var(--text)', fontFamily: 'inherit' }} 
           value={prompt} 
           onChange={e => setPrompt(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleSend()}
-          placeholder="描述您的造数需求..." 
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+            }
+          }}
+          placeholder="描述您的造数需求... (Shift+Enter 换行，Enter 发送)" 
           disabled={loading}
+          rows={1}
         />
-        <button onClick={handleSend} disabled={loading}>
+        <button onClick={handleSend} disabled={loading} style={{ whiteSpace: 'nowrap', flexShrink: 0, height: '40px' }}>
           {loading ? <Loader2 size={18} className="spinner" /> : <Send size={18} />} 发送
         </button>
       </div>

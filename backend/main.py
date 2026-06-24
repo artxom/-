@@ -114,11 +114,13 @@ class ChatRequest(BaseModel):
     prompt: str
     history: list = []
     field_constraints: dict = {}
+    extract_knowledge: bool = True
+    goal_mode: bool = False
 
 @app.post("/api/agent/chat")
 def agent_chat(req: ChatRequest):
     return StreamingResponse(
-        run_agent_loop_stream(req.prompt, req.history, req.field_constraints),
+        run_agent_loop_stream(req.prompt, req.history, req.field_constraints, req.extract_knowledge, req.goal_mode),
         media_type="application/x-ndjson"
     )
 
@@ -217,4 +219,10 @@ if os.path.exists(frontend_dist):
         return FileResponse(os.path.join(frontend_dist, "index.html"))
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    if getattr(sys, 'frozen', False):
+        import multiprocessing
+        multiprocessing.freeze_support()
+        uvicorn.run(app, host="127.0.0.1", port=8000)
+    else:
+        # 开发模式下使用字符串并开启热更新
+        uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
