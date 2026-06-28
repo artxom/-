@@ -27,6 +27,61 @@ const btnIconStyle = {
   padding: '0.4rem', borderRadius: '6px', backgroundColor: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)'
 };
 
+const SearchableSelect = ({ options, value, onChange, placeholder, style, disabled }: any) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: any) {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [wrapperRef]);
+
+  const filteredOptions = options.filter((o: string) => o.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative', ...style, opacity: disabled ? 0.5 : 1, pointerEvents: disabled ? 'none' : 'auto' }}>
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        style={{ padding: '0.5rem', borderRadius: '8px', backgroundColor: 'rgba(0,0,0,0.2)', border: '1px solid rgba(255,255,255,0.1)', color: value ? 'white' : 'var(--text-muted)', cursor: 'pointer', minHeight: '38px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+      >
+        <span>{value || placeholder}</span>
+        <ChevronDown size={14} />
+      </div>
+      {isOpen && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, backgroundColor: 'var(--panel-bg)', backdropFilter: 'blur(10px)', border: '1px solid var(--border)', borderRadius: '8px', marginTop: '4px', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '250px' }}>
+          <input 
+            type="text" 
+            placeholder="搜索..." 
+            value={search} 
+            onChange={e => setSearch(e.target.value)}
+            style={{ padding: '0.4rem', borderRadius: '4px', border: '1px solid var(--border)', backgroundColor: 'rgba(0,0,0,0.2)', color: 'white', width: '100%' }}
+            onClick={e => e.stopPropagation()}
+          />
+          <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column' }}>
+            {filteredOptions.length > 0 ? filteredOptions.map((o: string) => (
+              <div 
+                key={o} 
+                onClick={() => { onChange(o); setIsOpen(false); setSearch(''); }}
+                style={{ padding: '0.4rem', cursor: 'pointer', borderRadius: '4px', backgroundColor: value === o ? 'var(--primary)' : 'transparent' }}
+                onMouseEnter={e => (e.currentTarget.style.backgroundColor = value === o ? 'var(--primary)' : 'rgba(255,255,255,0.05)')}
+                onMouseLeave={e => (e.currentTarget.style.backgroundColor = value === o ? 'var(--primary)' : 'transparent')}
+              >
+                {o}
+              </div>
+            )) : <div style={{ padding: '0.4rem', color: 'var(--text-muted)' }}>无匹配结果</div>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const BasicGenerationPage = () => {
   const [schemas, setSchemas] = useState<string[]>([]);
   const [selectedSchema, setSelectedSchema] = useState<string>('');
@@ -52,6 +107,10 @@ const BasicGenerationPage = () => {
   const [matchKeys, setMatchKeys] = useState<{target: string, source: string}[]>([{target: '', source: ''}]);
   const [updateFields, setUpdateFields] = useState<{target: string, source: string}[]>([{target: '', source: ''}]);
   const [dualSqlPreview, setDualSqlPreview] = useState<string>('');
+
+  type MatchingStrategy = 'exact' | 'random' | 'grouped';
+  const [matchingStrategy, setMatchingStrategy] = useState<MatchingStrategy>('exact');
+  const [groupTargetKey, setGroupTargetKey] = useState<string>('');
 
   // AI Tab State
   const [aiTargetField, setAiTargetField] = useState<string>('');
@@ -236,18 +295,76 @@ const BasicGenerationPage = () => {
     const sourceName = `${sourceSchema}.${sourceTableName}`;
     
     const validUpdates = updateFields.filter(f => f.target && f.source);
-    const validMatches = matchKeys.filter(f => f.target && f.source);
-    
-    if (validUpdates.length === 0 || validMatches.length === 0) {
-      alert("请至少配置一个关联键和一个更新列");
+    if (validUpdates.length === 0) {
+      alert("请至少配置一个更新列");
       return;
     }
-    
-    const setClauses = validUpdates.map(u => `${u.target} = ${sourceName}.${u.source}`).join(',\n    ');
-    const whereClauses = validMatches.map(m => `${targetName}.${m.target} = ${sourceName}.${m.source}`).join(' AND ');
-    
-    const sql = `UPDATE ${targetName}\nSET ${setClauses}\nFROM ${sourceName}\nWHERE ${whereClauses};`;
-    setDualSqlPreview(sql);
+
+    if (matchingStrategy === 'exact') {
+      const validMatches = matchKeys.filter(f => f.target && f.source);
+      if (validMatches.length === 0) {
+        alert("精确匹配模式下，请至少配置一个关联键");
+        return;
+      }
+      const setClauses = validUpdates.map(u => `${u.target} = ${sourceName}.${u.source}`).join(',\n    ');
+      const whereClauses = validMatches.map(m => `${targetName}.${m.target} = ${sourceName}.${m.source}`).join(' AND ');
+      const sql = `UPDATE ${targetName}\nSET ${setClauses}\nFROM ${sourceName}\nWHERE ${whereClauses};`;
+      setDualSqlPreview(sql);
+    } 
+    else if (matchingStrategy === 'random') {
+      const setClauses = validUpdates.map(u => `${u.target} = SourceData.${u.source}`).join(',\n    ');
+      const sql = `WITH SourceData AS (
+    SELECT *, row_number() over() - 1 as __rn
+    FROM ${sourceName}
+),
+TargetData AS (
+    SELECT ctid, row_number() over() - 1 as __rn
+    FROM ${targetName}
+),
+TotalSource AS (
+    SELECT count(*) as cnt FROM ${sourceName}
+)
+UPDATE ${targetName}
+SET ${setClauses}
+FROM TargetData
+JOIN TotalSource ON 1=1
+JOIN SourceData ON SourceData.__rn = (TargetData.__rn % TotalSource.cnt)
+WHERE ${targetName}.ctid = TargetData.ctid;`;
+      setDualSqlPreview(sql);
+    }
+    else if (matchingStrategy === 'grouped') {
+      if (!groupTargetKey) {
+        alert("分组映射模式下，请选择目标表分组键（例如 cust_no）");
+        return;
+      }
+      const validMatches = matchKeys.filter(f => f.target && f.source);
+      if (validMatches.length === 0) {
+        alert("分组映射模式下，请至少配置一个明细对应键（例如 indx_no）");
+        return;
+      }
+      const detailMatchClauses = validMatches.map(m => `SourceData.${m.source} = ${targetName}.${m.target}`).join(' AND ');
+      const setClauses = validUpdates.map(u => `${u.target} = SourceData.${u.source}`).join(',\n    ');
+      
+      const sql = `WITH SourceData AS (
+    SELECT *, row_number() over(partition by ${validMatches.map(m => m.source).join(', ')} order by random()) as __group_idx
+    FROM ${sourceName}
+),
+TargetGroups AS (
+    SELECT ${groupTargetKey}, dense_rank() over(order by ${groupTargetKey}) as __group_idx
+    FROM ${targetName}
+),
+TotalSourceGroups AS (
+    SELECT max(__group_idx) as max_idx FROM SourceData
+)
+UPDATE ${targetName}
+SET ${setClauses}
+FROM TargetGroups
+JOIN TotalSourceGroups ON 1=1
+JOIN SourceData ON ${detailMatchClauses} 
+               AND SourceData.__group_idx = ((TargetGroups.__group_idx - 1) % TotalSourceGroups.max_idx) + 1
+WHERE ${targetName}.${groupTargetKey} = TargetGroups.${groupTargetKey};`;
+      setDualSqlPreview(sql);
+    }
   };
 
   // --- AI Tab Functions ---
@@ -467,22 +584,65 @@ const BasicGenerationPage = () => {
                 {/* Source Table Selection */}
                 <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.2)', padding: '1rem', borderRadius: '8px' }}>
                   <span style={{color: 'var(--text-muted)', minWidth: '80px'}}>主表 (源):</span>
-                  <select className="form-select" value={sourceSchema} onChange={e => { setSourceSchema(e.target.value); setSourceTableName(''); }} style={selectStyle}>
-                    <option value="">-- 选择 Schema --</option>
-                    {schemas.map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <select className="form-select" value={sourceTableName} onChange={e => setSourceTableName(e.target.value)} disabled={!sourceSchema} style={selectStyle}>
-                    <option value="">-- 选择 Table --</option>
-                    {sourceTables.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
+                  <SearchableSelect 
+                    options={schemas}
+                    value={sourceSchema} 
+                    onChange={(v: string) => { setSourceSchema(v); setSourceTableName(''); }} 
+                    placeholder="-- 搜索 Schema --"
+                    style={{ flex: 1 }}
+                  />
+                  <SearchableSelect 
+                    options={sourceTables}
+                    value={sourceTableName} 
+                    onChange={(v: string) => setSourceTableName(v)} 
+                    placeholder="-- 搜索 Table --"
+                    disabled={!sourceSchema}
+                    style={{ flex: 1 }}
+                  />
                 </div>
 
                 {sourceSchema && sourceTableName && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                     
-                    {/* Match Keys */}
+                    {/* Matching Strategy */}
                     <div style={{ backgroundColor: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-                       <h4 style={{ margin: '0 0 1rem 0' }}>关联条件 (Match Keys)</h4>
+                       <h4 style={{ margin: '0 0 1rem 0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                         匹配策略 (Matching Strategy)
+                       </h4>
+                       <div style={{ display: 'flex', gap: '1rem' }}>
+                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                           <input type="radio" value="exact" checked={matchingStrategy === 'exact'} onChange={() => setMatchingStrategy('exact')} />
+                           精确匹配 (Exact Match)
+                         </label>
+                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                           <input type="radio" value="random" checked={matchingStrategy === 'random'} onChange={() => setMatchingStrategy('random')} />
+                           随机抽样 (Random Sampling)
+                         </label>
+                         <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+                           <input type="radio" value="grouped" checked={matchingStrategy === 'grouped'} onChange={() => setMatchingStrategy('grouped')} />
+                           分组映射 (Grouped Mapping)
+                         </label>
+                       </div>
+                       
+                       {matchingStrategy === 'random' && <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.8rem' }}>* 将从主表中顺序/随机抽取记录，为目标表中的每一行分配数据，无需关联条件。</p>}
+                       {matchingStrategy === 'grouped' && <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginTop: '0.8rem' }}>* 将目标表按指定分组键（如客户号）划分为多个数据组，并从主表中抽取整批“数据套”分配给客户，保证组内明细数据完全对应且隔离。</p>}
+                    </div>
+
+                    {/* Group Target Key for Grouped Mapping */}
+                    {matchingStrategy === 'grouped' && (
+                      <div style={{ backgroundColor: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                         <h4 style={{ margin: '0 0 1rem 0' }}>目标表分组键 (Target Group Key)</h4>
+                         <select className="form-select" value={groupTargetKey} onChange={e => setGroupTargetKey(e.target.value)} style={selectStyle}>
+                            <option value="">-- 选择目标表分组键 (如 cust_no) --</option>
+                            {tableFields.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
+                         </select>
+                      </div>
+                    )}
+
+                    {/* Match Keys */}
+                    {matchingStrategy !== 'random' && (
+                    <div style={{ backgroundColor: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+                       <h4 style={{ margin: '0 0 1rem 0' }}>{matchingStrategy === 'grouped' ? '明细对应键 (Detail Match Keys)' : '关联条件 (Match Keys)'}</h4>
                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.8rem' }}>
                          {matchKeys.map((mk, idx) => (
                            <div key={`mk-${idx}`} style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
@@ -507,6 +667,7 @@ const BasicGenerationPage = () => {
                          <Plus size={16}/> 添加关联条件
                        </button>
                     </div>
+                    )}
 
                     {/* Update Fields */}
                     <div style={{ backgroundColor: 'rgba(255,255,255,0.02)', padding: '1rem', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
