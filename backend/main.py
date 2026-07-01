@@ -228,8 +228,29 @@ if os.path.exists(frontend_dist):
 if __name__ == "__main__":
     if getattr(sys, 'frozen', False):
         import multiprocessing
+        import socket
+        import webbrowser
+        import threading
+        import time
+
         multiprocessing.freeze_support()
-        uvicorn.run(app, host="127.0.0.1", port=8000)
+        
+        def find_free_port(start_port=8000, max_port=8050):
+            for port in range(start_port, max_port):
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    if s.connect_ex(('127.0.0.1', port)) != 0:
+                        return port
+            return 8000
+            
+        free_port = find_free_port()
+        
+        def open_browser():
+            time.sleep(1.5)
+            webbrowser.open(f"http://127.0.0.1:{free_port}")
+            
+        threading.Thread(target=open_browser, daemon=True).start()
+        
+        uvicorn.run(app, host="127.0.0.1", port=free_port)
     else:
         # 开发模式下使用字符串并开启热更新
         uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
