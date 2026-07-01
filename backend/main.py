@@ -235,17 +235,28 @@ if __name__ == "__main__":
 
         multiprocessing.freeze_support()
         
-        def find_free_port(start_port=8000, max_port=8050):
-            for port in range(start_port, max_port):
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    if s.connect_ex(('127.0.0.1', port)) != 0:
-                        return port
-            return 8000
-            
-        free_port = find_free_port()
+        def get_user_port():
+            while True:
+                try:
+                    user_input = input("⚠️  默认端口 8000 已被占用，请手动输入一个新的可用端口号 (例如 8080): ")
+                    port = int(user_input.strip())
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        if s.connect_ex(('127.0.0.1', port)) == 0:
+                            print(f"❌ 端口 {port} 也被占用了，请换一个。")
+                            continue
+                    return port
+                except ValueError:
+                    print("❌ 请输入纯数字组成的有效端口号。")
+
+        # Check if 8000 is free
+        free_port = 8000
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            if s.connect_ex(('127.0.0.1', 8000)) == 0:
+                free_port = get_user_port()
         
         def open_browser():
             time.sleep(1.5)
+            print(f"\n🚀 服务已启动！如果在行内环境无法自动弹窗，请手动在浏览器访问: http://127.0.0.1:{free_port}\n")
             webbrowser.open(f"http://127.0.0.1:{free_port}")
             
         threading.Thread(target=open_browser, daemon=True).start()
