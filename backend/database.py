@@ -102,7 +102,7 @@ class DatabaseManager:
             logger.error(f"Error getting relations for {table_name} in {schema}: {e}")
             return None
 
-    def execute_query(self, sql: str, params: dict = None) -> List[Dict[str, Any]]:
+    def execute_query(self, sql: str, params: dict = None) -> Any:
         if not self.engine:
             raise Exception("Database not connected")
         
@@ -112,14 +112,14 @@ class DatabaseManager:
         if needs_autocommit:
             with self.engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
                 result = conn.execute(text(sql), params or {})
-                return [{"status": "success", "rowcount": result.rowcount}]
+                return {"status": "success", "rowcount": result.rowcount}
         else:
             with self.engine.connect() as conn:
                 result = conn.execute(text(sql), params or {})
                 if result.returns_rows:
-                    return [dict(row._mapping) for row in result]
+                    return {"status": "success", "rows": [dict(row._mapping) for row in result], "columns": list(result.keys())}
                 else:
                     conn.commit()
-                    return [{"status": "success", "rowcount": result.rowcount}]
+                    return {"status": "success", "rowcount": result.rowcount}
 
 db_manager = DatabaseManager()

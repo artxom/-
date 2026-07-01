@@ -4,6 +4,7 @@ import Layout from './components/Layout';
 import ConfigPage from './pages/ConfigPage';
 import AgentChatPage from './pages/AgentChatPage';
 import BasicGenerationPage from './pages/BasicGenerationPage';
+import SqlEditorPage from './pages/SqlEditorPage';
 import KnowledgePage from './pages/KnowledgePage';
 import AnalyticsPage from './pages/AnalyticsPage';
 
@@ -18,6 +19,7 @@ function App() {
           <Route path="knowledge" element={<KnowledgePage />} />
           <Route path="analytics" element={<AnalyticsPage />} />
           <Route path="basic" element={<BasicGenerationPage />} />
+          <Route path="editor" element={<SqlEditorPage />} />
         </Route>
       </Routes>
     </BrowserRouter>

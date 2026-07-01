@@ -131,7 +131,7 @@ class ExecuteRequest(BaseModel):
 def execute_sql(req: ExecuteRequest):
     try:
         res = db_manager.execute_query(req.sql)
-        return {"status": "success", "data": res}
+        return res
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 

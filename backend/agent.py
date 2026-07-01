@@ -108,11 +108,11 @@ def run_agent_loop_stream(user_prompt: str, chat_history: list = None, field_con
 1. 分析：阅读用户的造数需求。
 2. 探索：如果不清楚表结构，请调用 `get_table_schema` 和 `get_table_relations` 获取。若系统上下文中已提供表结构或用户已描述足够清晰，**请直接跳过此探查步骤**以提升效率！严禁凭空臆造表名或字段名。
 3. 验证：你可以视情况使用 `execute_query` 执行 SELECT 语句查看现有数据格式。**严禁在 execute_query 中执行 INSERT/UPDATE 等写操作！**
-4. 提交：根据掌握的真实表结构，直接生成准确的造数 SQL，并调用 `propose_modification` 提交你的提案。
+4. 提交：根据掌握的真实表结构，生成准确的造数 SQL。如果目标表已存在数据，**请优先使用 UPDATE 语句**进行修改，**并且在 UPDATE 语句后紧跟一段 SELECT 语句**（让用户能查出被你 UPDATE 影响的数据，方便他们导出为 INSERT VALUES）。将这两条语句一起通过 `propose_modification` 提交你的提案。
 
 注意事项：
-- 字段类型和拼写必须与数据库严格一致。
-- 绝不伪造外键约束所需的值，如有不确定请先通过 SELECT 查询现有值。
+- 字段类型和拼写必须与数据库严格一致，绝不臆造字段。
+- 只有当目标表确实是空表或用户明确要求新增时，才可以使用 INSERT 语句生成数据。
 - **请严格遵守：你的思考过程（Reasoning/Thinking）可以是英文，但最终的回复（Response）内容必须 100% 强制使用中文！绝对不要在回复中使用英文句子。**"""
     
     try:

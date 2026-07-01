@@ -39,8 +39,9 @@ const Layout = () => {
 
   const navItems = [
     { path: '/config', char: '符', label: '环境配置' },
+    { path: '/editor', char: '算', label: '数据探查' },
     { path: '/basic', char: '篡', label: '数据修改' },
-    { path: '/agent', char: '策', label: '智能造数' },
+    { path: '/agent', char: '答', label: '智能造数' },
     { path: '/knowledge', char: '籍', label: '知识管理' },
     { path: '/analytics', char: '筹', label: '用量统计' },
   ];
@@ -107,7 +108,7 @@ const Layout = () => {
             maxWidth: isCollapsed ? '0px' : '200px',
             transition: 'all 0.3s ease'
           }}>
-            莫知其味
+            Amarsoft
           </h1>
         </div>
         

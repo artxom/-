@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { Send, Play, Terminal, CheckCircle, Loader2, DatabaseZap, Code, BookOpen } from 'lucide-react';
+import { Send, Play, Terminal, CheckCircle, Loader2, DatabaseZap, Code, BookOpen, Trash2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -185,10 +185,39 @@ const AgentChatPage = () => {
     }
   };
 
+  const handleClearChat = () => {
+    if (window.confirm('确定要清空当前的所有对话和生成的方案吗？')) {
+      setMessages([]);
+      setHistory([]);
+      setProposals([]);
+      sessionStorage.removeItem('agentChat_messages');
+      sessionStorage.removeItem('agentChat_history');
+      sessionStorage.removeItem('agentChat_proposals');
+    }
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '1rem' }} className="animate-fade-in">
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '1rem', overflow: 'hidden' }} className="animate-fade-in">
+      {/* Header */}
+      <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+         <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+            <DatabaseZap size={24} /> 数据库智能体
+         </h2>
+         <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <button 
+              onClick={handleClearChat}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', backgroundColor: 'rgba(239, 68, 68, 0.2)', border: '1px solid rgba(239, 68, 68, 0.5)', borderRadius: '6px', color: 'rgb(252, 165, 165)', cursor: 'pointer' }}
+            >
+              <Trash2 size={16} /> 清空会话
+            </button>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', color: 'var(--text-muted)', fontSize: '0.9rem' }}>
+              <input type="checkbox" checked={enableExtraction} onChange={e => setEnableExtraction(e.target.checked)} />
+              自动提取知识
+            </label>
+         </div>
+      </div>
+
       <div className="glass-panel" style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-        <h2>与 DeepSeek Agent 协作</h2>
         {messages.length === 0 && (
           <div style={{ textAlign: 'center', color: 'var(--text-muted)', marginTop: '2rem' }}>
             <Terminal size={48} style={{ opacity: 0.5, marginBottom: '1rem' }} />
