@@ -89,8 +89,9 @@ const Layout = () => {
         {/* Logo Section */}
         <div style={{ 
           display: 'flex', 
-          alignItems: 'center', 
-          gap: '1rem',
+          alignItems: 'center',
+          justifyContent: isCollapsed ? 'center' : 'flex-start',
+          gap: isCollapsed ? '0' : '1rem',
           paddingBottom: '1.5rem', 
           borderBottom: '1px solid var(--border)',
           overflow: 'hidden',
@@ -120,13 +121,14 @@ const Layout = () => {
               key={item.path}
               to={item.path} 
               style={({ isActive }) => ({
-                padding: '0.8rem', 
+                padding: isCollapsed ? '0.8rem 0' : '0.8rem',
                 borderRadius: '12px', 
                 textDecoration: 'none',
                 backgroundColor: isActive ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
                 display: 'flex', 
                 alignItems: 'center', 
-                gap: '1.5rem', // increased gap between icon and text
+                justifyContent: isCollapsed ? 'center' : 'flex-start',
+                gap: isCollapsed ? '0' : '1.5rem',
                 transition: 'all 0.2s ease',
                 overflow: 'hidden'
               })}
