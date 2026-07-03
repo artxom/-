@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
+from typing import Optional
 import json
 import os
 from database import db_manager, DBConfig
@@ -160,7 +161,7 @@ def extract_knowledge(req: ExtractKnowledgeRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 class SaveSessionRequest(BaseModel):
-    id: str = None
+    id: Optional[str] = None
     title: str
     history: list
 

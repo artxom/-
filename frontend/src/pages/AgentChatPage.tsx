@@ -24,10 +24,20 @@ interface ToolExecution {
 
 const AgentChatPage = () => {
   const [sessions, setSessions] = useState<{id: string, title: string, updated_at: string}[]>([]);
-  const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [currentSessionId, setCurrentSessionIdState] = useState<string | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const updateSessionId = (id: string | null) => {
+    setCurrentSessionIdState(id);
+    sessionIdRef.current = id;
+  };
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistoryState] = useState<any[]>([]);
+  const historyRef = useRef<any[]>([]);
+  const updateHistory = (newHistory: any[]) => {
+    setHistoryState(newHistory);
+    historyRef.current = newHistory;
+  };
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
   const [proposals, setProposals] = useState<Proposal[]>([]);
@@ -47,6 +57,22 @@ const AgentChatPage = () => {
 
   useEffect(() => {
     fetchSessions();
+    return () => {
+      if (historyRef.current.length > 0) {
+         const currentHist = historyRef.current;
+         const title = currentHist.find((m:any) => m.role === 'user')?.content.substring(0, 20) || '新会话';
+         fetch('/api/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              id: sessionIdRef.current,
+              title: title,
+              history: currentHist
+            }),
+            keepalive: true
+         }).catch(console.error);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -67,8 +93,8 @@ const AgentChatPage = () => {
     try {
       const res = await axios.get(`/api/sessions/${id}`);
       const data = res.data.data;
-      setCurrentSessionId(data.id);
-      setHistory(data.history);
+      updateSessionId(data.id);
+      updateHistory(data.history);
       
       const reconstructed: ChatMessage[] = [];
       for (const msg of data.history) {
@@ -87,9 +113,12 @@ const AgentChatPage = () => {
 
   const createNewSession = () => {
     if (loading) return;
-    setCurrentSessionId(null);
+    if (historyRef.current.length > 0) {
+      saveSessionFromRef();
+    }
+    updateSessionId(null);
     setMessages([]);
-    setHistory([]);
+    updateHistory([]);
     setProposals([]);
   };
 
@@ -98,8 +127,11 @@ const AgentChatPage = () => {
     if (!window.confirm("确定删除该会话？")) return;
     try {
       await axios.delete(`/api/sessions/${id}`);
-      if (currentSessionId === id) {
-        createNewSession();
+      if (sessionIdRef.current === id) {
+        updateSessionId(null);
+        setMessages([]);
+        updateHistory([]);
+        setProposals([]);
       }
       fetchSessions();
     } catch (err) {
@@ -107,16 +139,18 @@ const AgentChatPage = () => {
     }
   };
 
-  const saveCurrentSession = async (newHistory: any[]) => {
+  const saveSessionFromRef = async () => {
+    const currentHist = historyRef.current;
+    if (currentHist.length === 0) return;
     try {
-      const title = newHistory.find((m:any) => m.role === 'user')?.content.substring(0, 20) || '新会话';
+      const title = currentHist.find((m:any) => m.role === 'user')?.content.substring(0, 20) || '新会话';
       const res = await axios.post('/api/sessions', {
-        id: currentSessionId,
+        id: sessionIdRef.current,
         title: title,
-        history: newHistory
+        history: currentHist
       });
-      if (!currentSessionId) {
-        setCurrentSessionId(res.data.id);
+      if (!sessionIdRef.current) {
+        updateSessionId(res.data.id);
       }
       fetchSessions();
     } catch (e) {
@@ -140,7 +174,7 @@ const AgentChatPage = () => {
       const response = await fetch('/api/agent/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt: userMsg.content, history: history, goal_mode: goalMode })
+        body: JSON.stringify({ prompt: userMsg.content, history: historyRef.current, goal_mode: goalMode })
       });
 
       if (!response.body) throw new Error("ReadableStream not yet supported in this browser.");
@@ -189,8 +223,8 @@ const AgentChatPage = () => {
               );
               setActiveTools(currentActiveTools);
             } else if (data.type === 'finished') {
-              setHistory(data.messages || []);
-              saveCurrentSession(data.messages || []);
+              updateHistory(data.messages || []);
+              saveSessionFromRef();
               if (data.proposals && data.proposals.length > 0) {
                 setProposals(data.proposals);
               }
