@@ -12,7 +12,7 @@ else
     exit 1
 fi
 
-echo "正在启动造数工具控制台..."
+echo "正在启动 DataOG 控制台..."
 $PYTHON_BIN launcher.py &
 
 # 退出当前终端窗口 (macOS Terminal behavior)

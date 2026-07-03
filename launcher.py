@@ -71,7 +71,7 @@ class HoverButton(tk.Button):
 class LauncherApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("DataOG 造数工具 - 智能控制台")
+        self.root.title("DataOG - 智能控制台")
         self.root.geometry("960x720")
         
         # Color Palette - Modern Dark Theme

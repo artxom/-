@@ -24,7 +24,7 @@ def main():
     
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--name", "造数工具",
+        "--name", "DataOG",
         "--onefile",
         "--noconsole",
         "--icon", "../OG.ico",
