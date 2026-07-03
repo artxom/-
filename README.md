@@ -65,7 +65,7 @@ py -m pip install -r requirements.txt
 py -m pip install pyinstaller
 
 :: 3. 执行最终打包，带上 --clean 清理缓存 (注意打包入口改为 launcher.py)
-py -m PyInstaller --clean --name 造数工具 --onefile --icon ..\OG.ico --add-data "..\frontend\dist;frontend\dist" --hidden-import uvicorn --hidden-import backend.main --hidden-import main --collect-all chromadb --collect-all sentence_transformers --paths . ..\launcher.py
+py -m PyInstaller --clean --name 造数工具 --onefile --icon ..\OG.ico --add-data "..\frontend\dist;frontend\dist" --hidden-import uvicorn --hidden-import backend.main --hidden-import main --collect-all chromadb --paths . ..\launcher.py
 :: (或者您可以直接在根目录运行 python build_exe.py，它会自动执行上述所有操作)
 ```
 

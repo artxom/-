@@ -7,4 +7,3 @@ openai
 python-dotenv
 cryptography
 chromadb
-sentence-transformers

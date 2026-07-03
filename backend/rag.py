@@ -9,14 +9,10 @@ class RAGManager:
         self.collection_name = collection_name
         self.client = chromadb.PersistentClient(path=self.db_path)
         
-        # Initialize the embedding function using sentence-transformers' lightweight model
-        self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name="all-MiniLM-L6-v2"
-        )
-        
+        # By not specifying an embedding_function, Chroma automatically uses its lightweight DefaultEmbeddingFunction (ONNX)
+        # This completely eliminates the massive and fragile sentence_transformers/PyTorch dependencies for PyInstaller.
         self.collection = self.client.get_or_create_collection(
-            name=self.collection_name,
-            embedding_function=self.embedding_function
+            name=self.collection_name
         )
 
     def add_knowledge(self, contents: List[str], metadatas: List[Dict[str, Any]] = None):

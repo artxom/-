@@ -32,7 +32,6 @@ def main():
         "--hidden-import", "backend.main",
         "--hidden-import", "main",
         "--collect-all", "chromadb",
-        "--collect-all", "sentence_transformers",
         "--paths", ".",
         "../launcher.py"
     ]
