@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import scrolledtext
 import subprocess
 import threading
 import os
@@ -14,6 +14,15 @@ if is_frozen:
     # Need to import these so PyInstaller bundles them. We use local imports below,
     # but having them here guarantees PyInstaller's analyzer sees them.
     pass
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, relative_path)
 
 class StreamRedirector(io.StringIO):
     def __init__(self, log_func, prefix, color):
@@ -31,72 +40,152 @@ class StreamRedirector(io.StringIO):
             level = "error"
         self.log_func(f"[{self.prefix}] {string.strip()}", level)
 
+class HoverButton(tk.Button):
+    def __init__(self, master, **kw):
+        self.default_bg = kw.get('bg', kw.get('background', '#2c2c2e'))
+        self.hover_bg = kw.pop('hover_bg', '#3a3a3c')
+        self.disabled_bg = "#444444"
+        kw['relief'] = 'flat'
+        kw['bd'] = 0
+        kw['cursor'] = 'hand2'
+        kw['activebackground'] = self.hover_bg
+        kw['activeforeground'] = kw.get('fg', 'white')
+        super().__init__(master, **kw)
+        self.bind("<Enter>", self.on_enter)
+        self.bind("<Leave>", self.on_leave)
+
+    def on_enter(self, e):
+        if self['state'] != tk.DISABLED:
+            self['bg'] = self.hover_bg
+
+    def on_leave(self, e):
+        if self['state'] != tk.DISABLED:
+            self['bg'] = self.default_bg
+            
+    def set_state(self, state):
+        if state == tk.NORMAL:
+            self.config(state=tk.NORMAL, bg=self.default_bg)
+        else:
+            self.config(state=tk.DISABLED, bg=self.disabled_bg)
+
 class LauncherApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("造数工具 - 一键启动器")
-        self.root.geometry("900x650")
-        self.root.configure(bg="#1e1e1e")
+        self.root.title("DataOG 造数工具 - 智能控制台")
+        self.root.geometry("960x720")
         
+        # Color Palette - Modern Dark Theme
+        self.colors = {
+            "bg": "#121212",           # Main background
+            "panel": "#1e1e1e",        # Panel background
+            "border": "#333333",       # Subtle borders
+            "text": "#ffffff",         # Primary text
+            "text_muted": "#a0a0a0",   # Secondary text
+            "accent": "#6366f1",       # Indigo primary
+            "accent_hover": "#4f46e5", 
+            "success": "#10b981",      # Emerald success
+            "success_hover": "#059669",
+            "danger": "#ef4444",       # Red danger
+            "danger_hover": "#dc2626",
+            "input_bg": "#2d2d2d",
+            "log_bg": "#0a0a0a",
+            "log_text": "#d4d4d4"
+        }
+        
+        self.root.configure(bg=self.colors["bg"])
+        
+        # Load custom icon
+        try:
+            icon_path = resource_path("OG.ico")
+            if os.path.exists(icon_path):
+                if sys.platform == 'win32':
+                    self.root.iconbitmap(icon_path)
+                else:
+                    img = tk.PhotoImage(file=icon_path)
+                    self.root.iconphoto(True, img)
+        except Exception:
+            pass
+            
         self.processes = []
         self.is_running = False
         self.uvicorn_server = None
         self.uvicorn_thread = None
 
-        style = ttk.Style()
-        style.theme_use('default')
-        style.configure('TFrame', background='#1e1e1e')
-        style.configure('TLabel', background='#1e1e1e', foreground='white', font=('Helvetica', 12))
-        style.configure('Dev.TButton', font=('Helvetica', 12, 'bold'), padding=10, background='#3b82f6', foreground='white')
-        style.map('Dev.TButton', background=[('active', '#2563eb')])
-        style.configure('Prod.TButton', font=('Helvetica', 12, 'bold'), padding=10, background='#10b981', foreground='white')
-        style.map('Prod.TButton', background=[('active', '#059669')])
-        style.configure('Stop.TButton', font=('Helvetica', 12, 'bold'), padding=10, background='#ef4444', foreground='white')
-        style.map('Stop.TButton', background=[('active', '#dc2626')])
+        self._build_ui()
 
-        # Header
-        header_frame = ttk.Frame(self.root, padding=20)
-        header_frame.pack(fill=tk.X)
+    def _build_ui(self):
+        # Top Header Area
+        header_frame = tk.Frame(self.root, bg=self.colors["panel"], height=85)
+        header_frame.pack(fill=tk.X, side=tk.TOP)
+        header_frame.pack_propagate(False)
         
-        ttk.Label(header_frame, text="造数工具 控制台", font=('Helvetica', 18, 'bold')).pack(side=tk.LEFT)
+        title_lbl = tk.Label(header_frame, text="DataOG 智能造数平台", font=('Microsoft YaHei', 18, 'bold'), 
+                             bg=self.colors["panel"], fg=self.colors["text"])
+        title_lbl.pack(side=tk.LEFT, padx=30, pady=25)
+        
+        # Status Badge
+        self.status_var = tk.StringVar(value="● 准备就绪")
+        self.status_lbl = tk.Label(header_frame, textvariable=self.status_var, font=('Microsoft YaHei', 12, 'bold'),
+                                   bg=self.colors["panel"], fg=self.colors["text_muted"])
+        self.status_lbl.pack(side=tk.LEFT, padx=10, pady=28)
 
-        # Port Selection
-        port_frame = ttk.Frame(header_frame)
-        port_frame.pack(side=tk.RIGHT)
-        ttk.Label(port_frame, text="端口:").pack(side=tk.LEFT, padx=5)
+        # Port Configuration
+        port_frame = tk.Frame(header_frame, bg=self.colors["panel"])
+        port_frame.pack(side=tk.RIGHT, padx=30, pady=25)
+        
+        tk.Label(port_frame, text="运行端口:", font=('Microsoft YaHei', 11), 
+                 bg=self.colors["panel"], fg=self.colors["text_muted"]).pack(side=tk.LEFT, padx=(0, 10))
+                 
         self.port_var = tk.StringVar(value="8000")
-        self.port_entry = ttk.Entry(port_frame, textvariable=self.port_var, width=6, font=('Helvetica', 12))
-        self.port_entry.pack(side=tk.LEFT)
+        self.port_entry = tk.Entry(port_frame, textvariable=self.port_var, width=8, font=('Consolas', 13),
+                                   bg=self.colors["input_bg"], fg=self.colors["text"], bd=0, 
+                                   insertbackground=self.colors["text"], justify="center")
+        self.port_entry.pack(side=tk.LEFT, ipady=5)
 
-        # Control Buttons
-        self.btn_frame = ttk.Frame(self.root, padding=20)
-        self.btn_frame.pack(fill=tk.X)
+        # Control Panel (Buttons)
+        control_frame = tk.Frame(self.root, bg=self.colors["bg"])
+        control_frame.pack(fill=tk.X, padx=30, pady=(25, 15))
+        
+        btn_font = ('Microsoft YaHei', 11, 'bold')
         
         if not is_frozen:
-            self.btn_dev = ttk.Button(self.btn_frame, text="🚀 启动开发模式 (Dev)", style='Dev.TButton', command=self.start_dev)
-            self.btn_dev.pack(side=tk.LEFT, padx=10)
+            self.btn_dev = HoverButton(control_frame, text="👨‍💻 开发模式 (Dev)", font=btn_font,
+                                      bg=self.colors["accent"], fg="white", hover_bg=self.colors["accent_hover"],
+                                      command=self.start_dev, padx=20, pady=10)
+            self.btn_dev.pack(side=tk.LEFT, padx=(0, 15))
+            
+        self.btn_prod = HoverButton(control_frame, text="🚀 启动服务 (Prod)", font=btn_font,
+                                   bg=self.colors["success"], fg="white", hover_bg=self.colors["success_hover"],
+                                   command=self.start_prod, padx=25, pady=10)
+        self.btn_prod.pack(side=tk.LEFT)
         
-        self.btn_prod = ttk.Button(self.btn_frame, text="🔥 启动服务 (Prod)", style='Prod.TButton', command=self.start_prod)
-        self.btn_prod.pack(side=tk.LEFT, padx=10)
-        
-        self.btn_stop = ttk.Button(self.btn_frame, text="⏹️ 停止服务", style='Stop.TButton', command=self.stop_all, state=tk.DISABLED)
-        self.btn_stop.pack(side=tk.RIGHT, padx=10)
+        self.btn_stop = HoverButton(control_frame, text="⏹️ 停止服务", font=btn_font,
+                                   bg=self.colors["danger"], fg="white", hover_bg=self.colors["danger_hover"],
+                                   command=self.stop_all, padx=25, pady=10)
+        self.btn_stop.pack(side=tk.RIGHT)
+        self.btn_stop.set_state(tk.DISABLED)
 
-        # Status Label
-        self.status_var = tk.StringVar()
-        self.status_var.set("状态: 准备就绪")
-        ttk.Label(self.root, textvariable=self.status_var, padding=(20, 0)).pack(anchor=tk.W)
-
-        # Log Console
-        log_frame = ttk.Frame(self.root, padding=20)
-        log_frame.pack(fill=tk.BOTH, expand=True)
+        # Log Output Area
+        log_container = tk.Frame(self.root, bg=self.colors["border"])
+        log_container.pack(fill=tk.BOTH, expand=True, padx=30, pady=(0, 30))
         
-        self.log_area = scrolledtext.ScrolledText(log_frame, bg="#0d0d0d", fg="#d4d4d4", font=("Consolas", 12), wrap=tk.WORD)
+        # Inner frame for 1px border simulation
+        log_inner = tk.Frame(log_container, bg=self.colors["log_bg"])
+        log_inner.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+        
+        self.log_area = scrolledtext.ScrolledText(log_inner, bg=self.colors["log_bg"], fg=self.colors["log_text"], 
+                                                  font=("Consolas", 11), wrap=tk.WORD, bd=0, padx=15, pady=15, 
+                                                  insertbackground=self.colors["log_text"])
         self.log_area.pack(fill=tk.BOTH, expand=True)
         
-        self.log_area.tag_configure("error", foreground="#ef4444")
-        self.log_area.tag_configure("success", foreground="#10b981")
-        self.log_area.tag_configure("info", foreground="#3b82f6")
+        # Tags for colored logs
+        self.log_area.tag_configure("error", foreground="#ff6b6b")
+        self.log_area.tag_configure("success", foreground="#51cf66")
+        self.log_area.tag_configure("info", foreground="#339af0")
+        self.log_area.tag_configure("system", foreground="#fcc419")
+
+        self.log("=== DataOG 智能控制台初始化完成 ===", "system")
+        self.log(">>> 等待启动指令...\n", "system")
 
     def log(self, message, level="normal"):
         self.log_area.insert(tk.END, message + "\n", level)
@@ -138,7 +227,6 @@ class LauncherApp:
 
     def start_dev(self):
         self._set_running_state(True)
-        self.status_var.set("状态: 开发模式运行中...")
         self.log(">>> 正在启动开发模式...", "info")
         
         backend_python = os.path.abspath("backend/venv/bin/python")
@@ -189,7 +277,6 @@ class LauncherApp:
                     return
 
         self._set_running_state(True)
-        self.status_var.set(f"状态: 运行中 (端口: {port})")
         self.log(f">>> 正在启动服务 (端口 {port})...", "info")
         
         if is_frozen:
@@ -222,25 +309,28 @@ class LauncherApp:
             self.uvicorn_server = None
             
         self._set_running_state(False)
-        self.status_var.set("状态: 准备就绪")
-        self.log(">>> 停止指令已发出。\n", "normal")
+        self.log(">>> 停止指令已发出。\n", "system")
 
     def _set_running_state(self, running):
         self.is_running = running
-        self.port_entry.state(['disabled'] if running else ['!disabled'])
+        self.port_entry.config(state=tk.DISABLED if running else tk.NORMAL)
         
         if not is_frozen:
-            if running:
-                self.btn_dev.state(['disabled'])
-            else:
-                self.btn_dev.state(['!disabled'])
+            self.btn_dev.set_state(tk.DISABLED if running else tk.NORMAL)
 
         if running:
-            self.btn_prod.state(['disabled'])
-            self.btn_stop.state(['!disabled'])
+            self.btn_prod.set_state(tk.DISABLED)
+            self.btn_stop.set_state(tk.NORMAL)
+            
+            port = self.port_var.get()
+            self.status_var.set(f"● 运行中 (端口: {port})")
+            self.status_lbl.config(fg=self.colors["success"])
         else:
-            self.btn_prod.state(['!disabled'])
-            self.btn_stop.state(['disabled'])
+            self.btn_prod.set_state(tk.NORMAL)
+            self.btn_stop.set_state(tk.DISABLED)
+            
+            self.status_var.set("● 准备就绪")
+            self.status_lbl.config(fg=self.colors["text_muted"])
 
     def on_closing(self):
         self.stop_all()
@@ -256,9 +346,14 @@ if __name__ == "__main__":
         sys.path.insert(0, sys._MEIPASS)
 
     root = tk.Tk()
+    
+    # Hide default tk root to avoid flickering before styling
+    root.withdraw()
     app = LauncherApp(root)
     root.protocol("WM_DELETE_WINDOW", app.on_closing)
     
+    # Show main window
+    root.deiconify()
     root.lift()
     root.attributes('-topmost', True)
     root.after_idle(root.attributes, '-topmost', False)
