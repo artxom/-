@@ -28,7 +28,7 @@ export const SearchableSelect = ({ options, value, onChange, placeholder, style,
         <ChevronDown size={14} />
       </div>
       {isOpen && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, backgroundColor: 'var(--panel-bg)', backdropFilter: 'blur(10px)', border: '1px solid var(--border)', borderRadius: '8px', marginTop: '4px', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '250px' }}>
+        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100, backgroundColor: 'var(--bg-card)', backdropFilter: 'blur(10px)', border: '1px solid var(--border)', borderRadius: '8px', marginTop: '4px', padding: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.5rem', maxHeight: '250px' }}>
           <input 
             type="text" 
             placeholder="搜索..." 

@@ -28,7 +28,7 @@ const SqlEditorPage = () => {
   };
   
   const [isEditing, setIsEditing] = useState(false);
-  const [isInsertMode, setIsInsertMode] = useState(false);
+  const [originalRowCount, setOriginalRowCount] = useState<number>(0);
   const [modifiedRows, setModifiedRows] = useState<{ [rowIndex: number]: { [col: string]: any } }>({});
   
   const [updateSql, setUpdateSql] = useState<string>('');
@@ -73,7 +73,7 @@ const SqlEditorPage = () => {
       setColumns([]);
       setModifiedRows({});
       setIsEditing(false);
-      setIsInsertMode(false);
+      setOriginalRowCount(0);
       setUpdateSql('');
     }
   }, [selectedSchema, selectedTable]);
@@ -94,18 +94,18 @@ const SqlEditorPage = () => {
           if (data.rows.length === 0) {
             const emptyRow = (data.columns || []).reduce((acc: any, col: string) => ({...acc, [col]: null}), {});
             setQueryResult([emptyRow]);
-            setIsInsertMode(true);
+            setOriginalRowCount(0);
             setIsEditing(true);
             setExecutionResult(`查询成功，数据为空。已自动开启插入模式。`);
           } else {
             setQueryResult(data.rows);
-            setIsInsertMode(false);
+            setOriginalRowCount(data.rows.length);
             setExecutionResult(`查询成功，返回 ${data.rows.length} 条记录。`);
           }
         } else if (data.rowcount !== undefined) {
           setQueryResult([]);
           setColumns([]);
-          setIsInsertMode(false);
+          setOriginalRowCount(0);
           setExecutionResult(`执行成功，影响行数: ${data.rowcount}`);
         }
       }
@@ -123,6 +123,55 @@ const SqlEditorPage = () => {
         ...prev,
         [rowIndex]: { ...rowMods, [col]: newValue }
       };
+    });
+  };
+
+  const handleAddRow = () => {
+    const emptyRow = columns.reduce((acc: any, col: string) => ({...acc, [col]: null}), {});
+    setQueryResult(prev => [...prev, emptyRow]);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>, startRowIdx: number, startColName: string) => {
+    const clipboardData = e.clipboardData.getData('Text');
+    if (!clipboardData) return;
+    e.preventDefault();
+
+    const rows = clipboardData.split(/\r?\n/).filter(row => row.trim() !== '' || row.includes('\t'));
+    const matrix = rows.map(row => row.split('\t'));
+    
+    const startColIdx = columns.indexOf(startColName);
+    if (startColIdx === -1) return;
+
+    const neededRowCount = startRowIdx + matrix.length;
+    
+    setQueryResult(prev => {
+      let newQueryResult = [...prev];
+      if (neededRowCount > newQueryResult.length) {
+        const rowsToAdd = neededRowCount - newQueryResult.length;
+        for (let i = 0; i < rowsToAdd; i++) {
+          const emptyRow = columns.reduce((acc: any, col: string) => ({...acc, [col]: null}), {});
+          newQueryResult.push(emptyRow);
+        }
+      }
+      return newQueryResult;
+    });
+
+    setModifiedRows(prev => {
+      const nextMods = { ...prev };
+      matrix.forEach((rowVals, rOffset) => {
+        const targetRowIdx = startRowIdx + rOffset;
+        if (!nextMods[targetRowIdx]) nextMods[targetRowIdx] = {};
+        
+        rowVals.forEach((val, cOffset) => {
+          const targetColIdx = startColIdx + cOffset;
+          if (targetColIdx < columns.length) {
+            const targetColName = columns[targetColIdx];
+            nextMods[targetRowIdx][targetColName] = val;
+          }
+        });
+      });
+      showToast(`成功粘贴 ${matrix.length} 行数据`, 'success');
+      return nextMods;
     });
   };
 
@@ -148,22 +197,22 @@ const SqlEditorPage = () => {
     }
 
     let sqls: string[] = [];
-    if (isInsertMode) {
-      for (const [rIdxStr, modifications] of Object.entries(modifiedRows)) {
-        const cols = Object.keys(modifications);
-        if (cols.length === 0) continue;
-        const vals = Object.values(modifications).map(v => formatVal(v));
+    for (const [rIdxStr, modifications] of Object.entries(modifiedRows)) {
+      const rIdx = parseInt(rIdxStr);
+      const cols = Object.keys(modifications);
+      if (cols.length === 0) continue;
+      
+      if (rIdx >= originalRowCount) {
+        // 新增行 -> INSERT
+        const vals = cols.map(col => formatVal(modifications[col]));
         const sql = `INSERT INTO ${selectedSchema}.${selectedTable} (${cols.join(", ")}) VALUES (${vals.join(", ")});`;
         sqls.push(sql);
-      }
-    } else {
-      for (const [rIdxStr, modifications] of Object.entries(modifiedRows)) {
-        const rIdx = parseInt(rIdxStr);
+      } else {
+        // 原有行 -> UPDATE
         const originalRow = queryResult[rIdx];
         if (!originalRow) continue;
         
-        const setClauses = Object.entries(modifications).map(([col, val]) => `${col} = ${formatVal(val)}`);
-        // Use original row to construct safe WHERE clause
+        const setClauses = cols.map(col => `${col} = ${formatVal(modifications[col])}`);
         const whereClauses = Object.entries(originalRow).map(([col, val]) => formatWhere(col, val));
         
         const sql = `UPDATE ${selectedSchema}.${selectedTable} SET ${setClauses.join(", ")} WHERE ${whereClauses.join(" AND ")};`;
@@ -215,13 +264,14 @@ const SqlEditorPage = () => {
       </div>
 
       {/* Selectors */}
-      <div className="glass-panel" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+      <div className="glass-panel" style={{ display: 'flex', gap: '1rem', alignItems: 'center', position: 'relative', zIndex: 10 }}>
         <span style={{color: 'var(--text-muted)'}}>目标表:</span>
         <SearchableSelect 
           options={schemas}
           value={selectedSchema} 
           onChange={(v: string) => { setSelectedSchema(v); setSelectedTable(''); }} 
           placeholder="-- 搜索 Schema --"
+          disabled={isExecuting}
           style={{ width: '200px' }}
         />
         <SearchableSelect 
@@ -229,7 +279,7 @@ const SqlEditorPage = () => {
           value={selectedTable} 
           onChange={(v: string) => setSelectedTable(v)} 
           placeholder="-- 搜索 Table --"
-          disabled={!selectedSchema}
+          disabled={!selectedSchema || isExecuting}
           style={{ width: '300px' }}
         />
       </div>
@@ -267,10 +317,17 @@ const SqlEditorPage = () => {
                 </button>
               ) : (
                 <>
-                  <button onClick={() => { setIsEditing(false); setModifiedRows({}); setIsInsertMode(false); }} style={{ ...btnIconStyle, backgroundColor: 'rgba(255,255,255,0.1)', color: 'white' }}>
+                  <button onClick={() => { 
+                      setIsEditing(false); 
+                      setModifiedRows({}); 
+                      setQueryResult(prev => prev.slice(0, originalRowCount)); 
+                    }} style={{ ...btnIconStyle, backgroundColor: 'rgba(255,255,255,0.1)', color: 'white' }}>
                     <X size={16} /> 取消编辑
                   </button>
-                  <button onClick={handleGenerateUpdate} style={btnIconStyle}>
+                  <button onClick={handleAddRow} style={{ ...btnIconStyle, backgroundColor: 'var(--primary)' }}>
+                    + 新增空行
+                  </button>
+                  <button onClick={handleGenerateUpdate} style={{ ...btnIconStyle, backgroundColor: 'var(--success)' }}>
                     <Check size={16} /> 生成变更 SQL
                   </button>
                 </>
@@ -293,12 +350,13 @@ const SqlEditorPage = () => {
                     {columns.map(col => {
                       const isModified = modifiedRows[rIdx] && modifiedRows[rIdx].hasOwnProperty(col);
                       const displayVal = isModified ? modifiedRows[rIdx][col] : row[col];
+                      const isNewRow = rIdx >= originalRowCount;
                       
                       return (
                         <td key={col} style={{ 
                           padding: '0.5rem', 
                           whiteSpace: 'nowrap',
-                          backgroundColor: isModified ? 'rgba(16, 185, 129, 0.2)' : 'transparent',
+                          backgroundColor: isNewRow ? 'rgba(59, 130, 246, 0.15)' : (isModified ? 'rgba(16, 185, 129, 0.2)' : 'transparent'),
                           transition: 'background-color 0.2s'
                         }}>
                           {isEditing ? (
@@ -306,11 +364,12 @@ const SqlEditorPage = () => {
                               type="text" 
                               value={displayVal === null ? '' : displayVal}
                               onChange={e => handleCellChange(rIdx, col, e.target.value)}
+                              onPaste={e => handlePaste(e, rIdx, col)}
                               style={{ 
                                 width: '100%', 
                                 padding: '0.3rem', 
-                                backgroundColor: isModified ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.2)', 
-                                border: isModified ? '1px solid var(--success)' : '1px solid transparent', 
+                                backgroundColor: isModified || isNewRow ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.2)', 
+                                border: isNewRow ? '1px solid var(--primary)' : (isModified ? '1px solid var(--success)' : '1px solid transparent'), 
                                 color: 'white',
                                 borderRadius: '4px'
                               }}
