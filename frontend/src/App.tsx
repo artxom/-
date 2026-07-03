@@ -7,22 +7,25 @@ import BasicGenerationPage from './pages/BasicGenerationPage';
 import SqlEditorPage from './pages/SqlEditorPage';
 import KnowledgePage from './pages/KnowledgePage';
 import AnalyticsPage from './pages/AnalyticsPage';
+import { AgentChatProvider } from './contexts/AgentChatContext';
 
 function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Navigate to="/config" replace />} />
-          <Route path="config" element={<ConfigPage />} />
-          <Route path="agent" element={<AgentChatPage />} />
-          <Route path="knowledge" element={<KnowledgePage />} />
-          <Route path="analytics" element={<AnalyticsPage />} />
-          <Route path="basic" element={<BasicGenerationPage />} />
-          <Route path="editor" element={<SqlEditorPage />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
+    <AgentChatProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Layout />}>
+            <Route index element={<Navigate to="/config" replace />} />
+            <Route path="config" element={<ConfigPage />} />
+            <Route path="agent" element={<AgentChatPage />} />
+            <Route path="knowledge" element={<KnowledgePage />} />
+            <Route path="analytics" element={<AnalyticsPage />} />
+            <Route path="basic" element={<BasicGenerationPage />} />
+            <Route path="editor" element={<SqlEditorPage />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AgentChatProvider>
   );
 }
 
