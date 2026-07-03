@@ -24,10 +24,15 @@ def main():
     
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--name", "MoZhiQiWei_v4",
+        "--name", "造数工具",
         "--onefile",
+        "--icon", "../OG.ico",
         "--add-data", f"../frontend/dist{separator}frontend/dist",
-        "main.py"
+        "--hidden-import", "uvicorn",
+        "--hidden-import", "backend.main",
+        "--hidden-import", "main",
+        "--paths", ".",
+        "../launcher.py"
     ]
     
     print(f"执行命令: {' '.join(cmd)}")

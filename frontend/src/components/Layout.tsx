@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
 import { DatabaseZap, ChevronLeft, ChevronRight } from 'lucide-react';
+import ogLogo from '../assets/OG.jpg';
 
 const DiamondIcon = ({ char, active }: { char: string, active: boolean }) => (
   <div style={{
@@ -95,7 +96,7 @@ const Layout = () => {
           overflow: 'hidden',
           whiteSpace: 'nowrap'
         }}>
-          <DatabaseZap color="var(--primary)" size={38} style={{ flexShrink: 0 }} />
+          <img src={ogLogo} alt="Data.OG Logo" style={{ width: '38px', height: '38px', borderRadius: '8px', flexShrink: 0, objectFit: 'cover' }} />
           <h1 style={{ 
             margin: 0, 
             fontSize: '2.2rem', 
@@ -108,7 +109,7 @@ const Layout = () => {
             maxWidth: isCollapsed ? '0px' : '200px',
             transition: 'all 0.3s ease'
           }}>
-            Amarsoft
+            Data.OG
           </h1>
         </div>
         

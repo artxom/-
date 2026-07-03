@@ -58,24 +58,37 @@ cd ..\backend
 :: 1. 强制删掉旧的缓存，防止之前失败的依赖检测残留
 rmdir /s /q build
 rmdir /s /q dist
-del MoZhiQiWei_v4.spec
+del 造数工具.spec
 
 :: 2. 安装所有项目依赖和打包工具
 py -m pip install -r requirements.txt
 py -m pip install pyinstaller
 
-:: 3. 执行最终打包，带上 --clean 清理缓存
-py -m PyInstaller --clean --name MoZhiQiWei_v4 --onefile --add-data "..\frontend\dist;frontend\dist" main.py
+:: 3. 执行最终打包，带上 --clean 清理缓存 (注意打包入口改为 launcher.py)
+py -m PyInstaller --clean --name 造数工具 --onefile --icon ..\OG.ico --add-data "..\frontend\dist;frontend\dist" --hidden-import uvicorn --hidden-import backend.main --hidden-import main --paths . ..\launcher.py
+:: (或者您可以直接在根目录运行 python build_exe.py，它会自动执行上述所有操作)
 ```
 
 ### 4. 提取成果！
-等屏幕滚动停止并提示成功后，前往 `backend\dist` 目录下，你会看到一个体积在二三十兆左右的 **`MoZhiQiWei_v4.exe`**。
+等屏幕滚动停止并提示成功后，前往 `backend\dist` 目录下，你会看到一个体积在二三十兆左右的 **`造数工具.exe`**。
 把它用 U 盘拷贝进内网的任意机器，双击运行即可！
 
 ---
 
 ## 💡 内网运行与排障说明
 
-- **如何访问界面？** 双击 `.exe` 后会弹出一个黑色的控制台窗口，此时打开浏览器访问：`http://127.0.0.1:8000` 即可。
-- **如果不小心关掉了？** 如果关闭了浏览器，重新打开这个网址即可。如果关闭了黑色黑窗口，程序就结束了，重新双击 `.exe` 再开一次即可。
+- **如何访问界面？** 双击 `.exe` 后，会弹出一个**可视化的控制台面板**。您可以在上面自定义端口（默认8000），点击【启动服务】后，面板下方会实时滚动显示后台日志。此时打开浏览器访问 `http://127.0.0.1:端口号` 即可。
+- **如果不小心关掉了？** 如果关闭了浏览器，重新打开网址即可；如果想关闭服务，点击面板上的【停止服务】或直接关闭控制台窗口。
 - **AI 无法对话卡在 Thinking？** 去配置页面点击【测试连通性】。如果提示 500 报错，说明内网的 API 中转网关不支持 Agent(Tools) 解析，请联系网关管理员修复。
+
+## 🎯 Next Milestone: RAG Knowledge Base (单机/内网版)
+
+当前系统中的知识存储模式较为简陋。我们在下一阶段的重大里程碑中，将正式实施真正的 RAG (Retrieval-Augmented Generation) 机制。
+考虑到系统必须在金融/政企等**纯内网单机**环境下运行，整体架构必须符合严苛的离线与轻量化约束。
+
+### 核心约束与技术选型：
+1. **纯离线 Embedding**：放弃调用任何公网 Embedding API。将在 Python 后端集成极轻量级的开源本地化 Embedding 库（如 `sentence-transformers` 的轻量模型），使其能够同代码一起被打入 `.exe` 单机包中运行。
+2. **嵌入式向量数据库**：坚决不引入需要独立 Docker 部署的重型组件（如 Elasticsearch 或独立的 Milvus）。我们将使用完全嵌入式的 `ChromaDB` 或 `FAISS`。
+3. **混合数据存储 (Hybrid Storage)**：
+   - **自然语言口径**：业务逻辑、口径说明等文本打散并向量化存储于 ChromaDB 中，供 Agent 通过语义余弦相似度进行上下文检索。
+   - **精确数据血缘**：由于血缘是严密的 DAG（有向无环图），单纯依靠大语言模型容易出现幻觉。这部分字段级的上下游映射表，将通过结构化的形式存入本地的 SQLite 数据库，由后台提供精准遍历接口。

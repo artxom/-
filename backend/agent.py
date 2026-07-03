@@ -1,7 +1,8 @@
 from openai import OpenAI
 import json
 from database import db_manager
-from memory import memory_manager
+from rag import rag_manager
+from lineage import lineage_manager
 from analytics import analytics_manager
 
 class AgentConfig:
@@ -94,10 +95,52 @@ tools = [
                 "required": ["sql", "reasoning"]
             }
         }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_knowledge_base",
+            "description": "必须调用此工具来搜索业务线口径、造数规则等模糊文本知识",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "The search query or keyword"
+                    }
+                },
+                "required": ["query"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_data_lineage",
+            "description": "必须调用此工具来查询指定字段的上下游血缘关系（直接影响来源和被影响目标），用于构建有依赖关系的造数。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "schema": {
+                        "type": "string",
+                        "description": "The schema name of the table"
+                    },
+                    "table_name": {
+                        "type": "string",
+                        "description": "The name of the table"
+                    },
+                    "column_name": {
+                        "type": "string",
+                        "description": "The name of the column"
+                    }
+                },
+                "required": ["schema", "table_name", "column_name"]
+            }
+        }
     }
 ]
 
-def run_agent_loop_stream(user_prompt: str, chat_history: list = None, field_constraints: dict = None, extract_knowledge: bool = True, goal_mode: bool = False):
+def run_agent_loop_stream(user_prompt: str, chat_history: list = None, field_constraints: dict = None, goal_mode: bool = False):
     if not agent_config.api_key:
         yield json.dumps({"type": "error", "message": "API Key is not configured."}) + "\n"
         return
@@ -115,13 +158,8 @@ def run_agent_loop_stream(user_prompt: str, chat_history: list = None, field_con
 - 只有当目标表确实是空表或用户明确要求新增时，才可以使用 INSERT 语句生成数据。
 - **请严格遵守：你的思考过程（Reasoning/Thinking）可以是英文，但最终的回复（Response）内容必须 100% 强制使用中文！绝对不要在回复中使用英文句子。**"""
     
-    try:
-        knowledge_list = memory_manager.get_all_knowledge()
-        if knowledge_list:
-            knowledge_texts = "\n- ".join([k["content"] for k in knowledge_list])
-            system_prompt += f"\n\nHere is the accumulated knowledge base about the database:\n- {knowledge_texts}\n\nPlease strictly follow these rules/patterns when generating SQL."
-    except Exception as e:
-        print(f"Failed to load knowledge: {e}")
+    # Note: RAG replaces the static knowledge base dump.
+    # The agent should use `search_knowledge_base` tool to query info dynamically.
 
     if field_constraints:
         system_prompt += f"\n\nHere are the field-level constraints specified by the user. You MUST strictly follow them when generating data for these fields:\n{json.dumps(field_constraints, ensure_ascii=False, indent=2)}\n"
@@ -184,49 +222,6 @@ def run_agent_loop_stream(user_prompt: str, chat_history: list = None, field_con
                 # Done
                 messages.append(message_to_append)
             
-                if extract_knowledge:
-                    yield json.dumps({"type": "status", "message": "Extracting new knowledge..."}) + "\n"
-                    try:
-                        extract_prompt = """请基于之前的对话历史，提取有价值的新知识，以便在未来的会话中记住。
-        重点关注：
-        1. Schema 语义（例如：status=1 表示正常，status=2 表示封禁）
-        2. 用户习惯（例如：生成的金额字段总是保留两位小数）
-        3. 场景模板规律（例如：特定造数场景下的标准 SQL 结构）
-
-        请务必使用**中文**进行总结。
-        只返回一个包含 'items' 键的 JSON 对象，值为字符串列表。如果没有新知识需要记忆，请返回 {"items": []}。"""
-                    
-                        extract_messages = messages.copy()
-                        extract_messages.append({"role": "user", "content": extract_prompt})
-                    
-                        ext_response = client.chat.completions.create(
-                            model=agent_config.model,
-                            messages=extract_messages,
-                            response_format={"type": "json_object"}
-                        )
-                    
-                        if hasattr(ext_response, 'usage') and ext_response.usage:
-                            session_prompt_tokens += getattr(ext_response.usage, 'prompt_tokens', 0)
-                            session_completion_tokens += getattr(ext_response.usage, 'completion_tokens', 0)
-                    
-                        ext_content = ext_response.choices[0].message.content
-                        
-                        import re
-                        match = re.search(r'```(?:json)?\s*(\{.*\})\s*```', ext_content, re.DOTALL)
-                        if match:
-                            ext_content = match.group(1)
-                            
-                        extracted_data = json.loads(ext_content)
-                        extracted_items = extracted_data.get("items", [])
-                    
-                        if extracted_items:
-                            yield json.dumps({
-                                "type": "knowledge_discovery",
-                                "items": extracted_items
-                            }) + "\n"
-                    except Exception as e:
-                        print(f"Knowledge extraction error: {e}")
-                
                 yield json.dumps({
                     "type": "finished", 
                     "proposals": final_proposals, 
@@ -260,6 +255,24 @@ def run_agent_loop_stream(user_prompt: str, chat_history: list = None, field_con
                         else:
                             query_result = db_manager.execute_query(sql)
                             result = json.dumps(query_result)[:2000]
+                    elif tool_name == "search_knowledge_base":
+                        query = args.get("query", "")
+                        results = rag_manager.search_knowledge(query, top_k=3)
+                        result = json.dumps(results, ensure_ascii=False) if results else "未找到相关知识。"
+                    elif tool_name == "query_data_lineage":
+                        schema = args.get("schema", "")
+                        table = args.get("table_name", "")
+                        column = args.get("column_name", "")
+                        col_id = lineage_manager.get_column_id(schema, table, column)
+                        if not col_id:
+                            result = "未找到该字段的血缘记录。"
+                        else:
+                            upstream = lineage_manager.get_upstream(col_id)
+                            downstream = lineage_manager.get_downstream(col_id)
+                            result = json.dumps({
+                                "upstream_sources": upstream,
+                                "downstream_targets": downstream
+                            }, ensure_ascii=False)
                     elif tool_name == "propose_modification":
                         final_proposals.append({
                             "sql": args.get("sql"),

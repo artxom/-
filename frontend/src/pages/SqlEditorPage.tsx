@@ -20,6 +20,13 @@ const SqlEditorPage = () => {
   const [queryResult, setQueryResult] = useState<any[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   
+  const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000);
+  };
+  
   const [isEditing, setIsEditing] = useState(false);
   const [isInsertMode, setIsInsertMode] = useState(false);
   const [modifiedRows, setModifiedRows] = useState<{ [rowIndex: number]: { [col: string]: any } }>({});
@@ -132,11 +139,11 @@ const SqlEditorPage = () => {
 
   const handleGenerateUpdate = () => {
     if (Object.keys(modifiedRows).length === 0) {
-      alert("没有检测到任何修改！");
+      showToast("没有检测到任何修改！", 'error');
       return;
     }
     if (!selectedSchema || !selectedTable) {
-      alert("请先在顶部选择目标 Schema 和 Table，以便生成准确的 UPDATE 语句。");
+      showToast("请先在顶部选择目标 Schema 和 Table，以便生成准确的语句。", 'error');
       return;
     }
 
@@ -172,14 +179,16 @@ const SqlEditorPage = () => {
     try {
       const res = await axios.post('/api/db/execute', { sql: updateSql });
       if (res.data.status === 'success') {
-        alert("变更执行成功！将为您重新查询最新数据。");
+        const rowcount = res.data.rowcount !== undefined ? res.data.rowcount : (res.data.data && res.data.data[0]?.rowcount);
+        const countMsg = rowcount !== undefined ? `成功更新了 ${rowcount} 条数据！` : '变更执行成功！';
+        showToast(`${countMsg} 将为您重新查询最新数据。`, 'success');
         setUpdateSql('');
         setModifiedRows({});
         setIsEditing(false);
         handleExecuteQuery(); // Re-run SELECT
       }
     } catch (e: any) {
-      alert(`变更执行失败: ${e.response?.data?.detail || e.message}`);
+      showToast(`变更执行失败: ${e.response?.data?.detail || e.message}`, 'error');
     } finally {
       setIsExecutingUpdate(false);
     }
@@ -187,6 +196,17 @@ const SqlEditorPage = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '1.5rem', padding: '1rem', overflowY: 'auto' }} className="animate-fade-in">
+      {toast && (
+        <div style={{
+          position: 'fixed', top: '20px', left: '50%', transform: 'translateX(-50%)',
+          backgroundColor: toast.type === 'error' ? 'var(--danger)' : toast.type === 'success' ? 'var(--success)' : 'var(--primary)',
+          color: 'white', padding: '1rem 2rem', borderRadius: '8px', boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+          zIndex: 9999, display: 'flex', alignItems: 'center', gap: '1rem', animation: 'fade-in 0.3s ease-out'
+        }}>
+          <span>{toast.message}</span>
+          <X size={16} style={{ cursor: 'pointer' }} onClick={() => setToast(null)} />
+        </div>
+      )}
       {/* Header */}
       <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
          <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>

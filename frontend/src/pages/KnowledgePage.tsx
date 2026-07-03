@@ -3,16 +3,18 @@ import axios from 'axios';
 import { BookOpen, Edit2, Trash2, Save, X, Loader2 } from 'lucide-react';
 
 interface Knowledge {
-  id: number;
+  id: string;
   content: string;
-  created_at: string;
+  created_at?: string;
 }
 
 const KnowledgePage = () => {
   const [knowledgeList, setKnowledgeList] = useState<Knowledge[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editContent, setEditContent] = useState('');
+  const [isAdding, setIsAdding] = useState(false);
+  const [newContent, setNewContent] = useState('');
 
   const fetchKnowledge = async () => {
     try {
@@ -34,7 +36,7 @@ const KnowledgePage = () => {
     setEditContent(k.content);
   };
 
-  const handleSave = async (id: number) => {
+  const handleSave = async (id: string) => {
     if (!editContent.trim()) return;
     try {
       await axios.put(`/api/knowledge/${id}`, { content: editContent });
@@ -45,7 +47,19 @@ const KnowledgePage = () => {
     }
   };
 
-  const handleDelete = async (id: number) => {
+  const handleAdd = async () => {
+    if (!newContent.trim()) return;
+    try {
+      await axios.post('/api/knowledge/approve', { items: [newContent] });
+      setIsAdding(false);
+      setNewContent('');
+      fetchKnowledge();
+    } catch (e) {
+      alert("添加失败");
+    }
+  };
+
+  const handleDelete = async (id: string) => {
     if (!window.confirm("确定要删除这条规则吗？")) return;
     try {
       await axios.delete(`/api/knowledge/${id}`);
@@ -57,9 +71,14 @@ const KnowledgePage = () => {
 
   return (
     <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div className="flex-row mb-6">
-        <BookOpen size={28} color="var(--primary)" />
-        <h1 style={{ margin: 0, marginLeft: '0.5rem' }}>知识库管理</h1>
+      <div className="flex-row mb-6" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', alignItems: 'center' }}>
+          <BookOpen size={28} color="var(--primary)" />
+          <h1 style={{ margin: 0, marginLeft: '0.5rem' }}>知识库管理</h1>
+        </div>
+        <button className="primary" onClick={() => setIsAdding(true)}>
+          + 添加知识
+        </button>
       </div>
       <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
         这里存放了 Agent 在过去的会话中自动学习并记录的业务规则、用户习惯和造数场景。您可以手动查阅、修改或删除它们。
@@ -76,6 +95,28 @@ const KnowledgePage = () => {
         </div>
       ) : (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', paddingRight: '0.5rem' }}>
+          {isAdding && (
+            <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem', border: '1px solid var(--primary)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.9rem', color: 'var(--primary)', fontWeight: 'bold' }}>新增知识</span>
+                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                  <button className="primary icon-btn" onClick={handleAdd} title="保存">
+                    <Save size={16} />
+                  </button>
+                  <button className="secondary icon-btn" onClick={() => setIsAdding(false)} title="取消">
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+              <textarea
+                value={newContent}
+                onChange={e => setNewContent(e.target.value)}
+                style={{ minHeight: '100px', width: '100%', resize: 'vertical', padding: '0.8rem', borderRadius: '8px', backgroundColor: 'rgba(0,0,0,0.2)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                autoFocus
+                placeholder="请输入要让 Agent 记住的业务口径、造数规则等..."
+              />
+            </div>
+          )}
           {knowledgeList.map(k => (
             <div key={k.id} className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -109,7 +150,7 @@ const KnowledgePage = () => {
                 <textarea
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
-                  style={{ minHeight: '100px', width: '100%', resize: 'vertical' }}
+                  style={{ minHeight: '100px', width: '100%', resize: 'vertical', padding: '0.8rem', borderRadius: '8px', backgroundColor: 'rgba(0,0,0,0.2)', color: 'var(--text)', border: '1px solid var(--border)' }}
                   autoFocus
                 />
               ) : (

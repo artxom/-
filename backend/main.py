@@ -7,7 +7,8 @@ import json
 import os
 from database import db_manager, DBConfig
 from agent import agent_config, run_agent_loop_stream
-from memory import memory_manager
+from rag import rag_manager
+from sessions import session_manager
 from analytics import analytics_manager
 import uvicorn
 from security import encrypt_secret, decrypt_secret
@@ -114,15 +115,89 @@ class ChatRequest(BaseModel):
     prompt: str
     history: list = []
     field_constraints: dict = {}
-    extract_knowledge: bool = True
     goal_mode: bool = False
 
 @app.post("/api/agent/chat")
 def agent_chat(req: ChatRequest):
     return StreamingResponse(
-        run_agent_loop_stream(req.prompt, req.history, req.field_constraints, req.extract_knowledge, req.goal_mode),
+        run_agent_loop_stream(req.prompt, req.history, req.field_constraints, req.goal_mode),
         media_type="application/x-ndjson"
     )
+
+class ExtractKnowledgeRequest(BaseModel):
+    history: list
+
+@app.post("/api/agent/extract_knowledge")
+def extract_knowledge(req: ExtractKnowledgeRequest):
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=agent_config.api_key, base_url=agent_config.base_url)
+        extract_prompt = """请基于以下多轮对话历史，提取有价值的新知识，以便在未来的会话中记住。
+        重点关注：
+        1. Schema 语义（例如：status=1 表示正常，status=2 表示封禁）
+        2. 用户习惯（例如：生成的金额字段总是保留两位小数）
+        3. 场景模板规律（例如：特定造数场景下的标准 SQL 结构）
+
+        请务必使用**中文**进行总结。
+        只返回一个包含 'items' 键的 JSON 对象，值为字符串列表。如果没有新知识需要记忆，请返回 {"items": []}。"""
+        
+        messages = req.history.copy()
+        messages.append({"role": "user", "content": extract_prompt})
+        
+        response = client.chat.completions.create(
+            model=agent_config.model,
+            messages=messages,
+            response_format={"type": "json_object"}
+        )
+        content = response.choices[0].message.content
+        import re
+        match = re.search(r'```(?:json)?\s*(\{.*\})\s*```', content, re.DOTALL)
+        if match:
+            content = match.group(1)
+        data = json.loads(content)
+        return {"status": "success", "items": data.get("items", [])}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+class SaveSessionRequest(BaseModel):
+    id: str = None
+    title: str
+    history: list
+
+@app.post("/api/sessions")
+def save_session(req: SaveSessionRequest):
+    try:
+        session_id = session_manager.create_or_update_session(req.id, req.title, req.history)
+        return {"status": "success", "id": session_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/sessions")
+def get_sessions():
+    try:
+        return {"status": "success", "data": session_manager.get_all_sessions()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/sessions/{session_id}")
+def get_session(session_id: str):
+    try:
+        data = session_manager.get_session(session_id)
+        if not data:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return {"status": "success", "data": data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/api/sessions/{session_id}")
+def delete_session(session_id: str):
+    try:
+        session_manager.delete_session(session_id)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 class ExecuteRequest(BaseModel):
     sql: str
@@ -165,7 +240,7 @@ class ApproveKnowledgeRequest(BaseModel):
 @app.post("/api/knowledge/approve")
 def approve_knowledge(req: ApproveKnowledgeRequest):
     try:
-        memory_manager.add_knowledge(req.items)
+        rag_manager.add_knowledge(req.items)
         return {"status": "success", "message": f"Added {len(req.items)} knowledge items."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -173,7 +248,7 @@ def approve_knowledge(req: ApproveKnowledgeRequest):
 @app.get("/api/knowledge")
 def get_knowledge():
     try:
-        return {"status": "success", "data": memory_manager.get_all_knowledge()}
+        return {"status": "success", "data": rag_manager.get_all_knowledge()}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -181,17 +256,17 @@ class UpdateKnowledgeRequest(BaseModel):
     content: str
 
 @app.put("/api/knowledge/{knowledge_id}")
-def update_knowledge(knowledge_id: int, req: UpdateKnowledgeRequest):
+def update_knowledge(knowledge_id: str, req: UpdateKnowledgeRequest):
     try:
-        memory_manager.update_knowledge(knowledge_id, req.content)
+        rag_manager.update_knowledge(knowledge_id, req.content)
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.delete("/api/knowledge/{knowledge_id}")
-def delete_knowledge(knowledge_id: int):
+def delete_knowledge(knowledge_id: str):
     try:
-        memory_manager.delete_knowledge(knowledge_id)
+        rag_manager.delete_knowledge(knowledge_id)
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
