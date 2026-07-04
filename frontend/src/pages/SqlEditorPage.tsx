@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
-import { DatabaseZap, Play, Loader2, Save, Edit3, X, Check } from 'lucide-react';
+import { DatabaseZap, Play, Loader2, Save, Edit3, X, Check, Download } from 'lucide-react';
 import { SearchableSelect } from '../components/SearchableSelect';
 
 const btnIconStyle = {
@@ -93,6 +93,7 @@ const SqlEditorPage = () => {
           setColumns(data.columns || []);
           if (data.rows.length === 0) {
             const emptyRow = (data.columns || []).reduce((acc: any, col: string) => ({...acc, [col]: null}), {});
+            Object.defineProperty(emptyRow, '__isNewRow', { value: true, enumerable: false, writable: true });
             setQueryResult([emptyRow]);
             setOriginalRowCount(0);
             setIsEditing(true);
@@ -128,10 +129,66 @@ const SqlEditorPage = () => {
 
   const handleAddRow = () => {
     const emptyRow = columns.reduce((acc: any, col: string) => ({...acc, [col]: null}), {});
-    setQueryResult(prev => [...prev, emptyRow]);
+    Object.defineProperty(emptyRow, '__isNewRow', { value: true, enumerable: false, writable: true });
+    setQueryResult(prev => [emptyRow, ...prev]);
+    setModifiedRows(prev => {
+      const nextMods: any = {};
+      for (const keyStr in prev) {
+        nextMods[parseInt(keyStr) + 1] = prev[keyStr];
+      }
+      return nextMods;
+    });
   };
 
-  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>, startRowIdx: number, startColName: string) => {
+  const handleDuplicateRow = (rIdx: number) => {
+    const rowToDuplicate = queryResult[rIdx];
+    const duplicatedRow = { ...rowToDuplicate };
+    Object.defineProperty(duplicatedRow, '__isNewRow', { value: true, enumerable: false, writable: true });
+    
+    const mods = modifiedRows[rIdx] || {};
+    const newMods: any = {};
+    for (const col of columns) {
+      const val = mods.hasOwnProperty(col) ? mods[col] : rowToDuplicate[col];
+      if (val !== null && val !== undefined) {
+        newMods[col] = val;
+      }
+    }
+
+    setQueryResult(prev => {
+      const next = [...prev];
+      next.splice(rIdx + 1, 0, duplicatedRow);
+      return next;
+    });
+
+    setModifiedRows(prev => {
+      const nextMods: any = {};
+      for (const keyStr in prev) {
+        const key = parseInt(keyStr);
+        if (key <= rIdx) {
+          nextMods[key] = prev[key];
+        } else {
+          nextMods[key + 1] = prev[key];
+        }
+      }
+      if (Object.keys(newMods).length > 0) {
+        nextMods[rIdx + 1] = newMods;
+      }
+      return nextMods;
+    });
+  };
+
+  const handleDeleteRow = (rIdx: number) => {
+    setModifiedRows(prev => {
+      const rowMods = prev[rIdx] || {};
+      const isDeleted = !!rowMods.__deleted;
+      return {
+        ...prev,
+        [rIdx]: { ...rowMods, __deleted: !isDeleted }
+      };
+    });
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement | HTMLTextAreaElement>, startRowIdx: number, startColName: string) => {
     const clipboardData = e.clipboardData.getData('Text');
     if (!clipboardData) return;
     e.preventDefault();
@@ -150,6 +207,7 @@ const SqlEditorPage = () => {
         const rowsToAdd = neededRowCount - newQueryResult.length;
         for (let i = 0; i < rowsToAdd; i++) {
           const emptyRow = columns.reduce((acc: any, col: string) => ({...acc, [col]: null}), {});
+          Object.defineProperty(emptyRow, '__isNewRow', { value: true, enumerable: false, writable: true });
           newQueryResult.push(emptyRow);
         }
       }
@@ -186,6 +244,29 @@ const SqlEditorPage = () => {
     return `${col} = ${formatVal(val)}`;
   };
 
+  const handleExportCSV = () => {
+    if (queryResult.length === 0) return;
+    const escapeCSV = (val: any) => {
+      if (val === null || val === undefined) return '';
+      const str = String(val);
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+    const header = columns.join(',');
+    const rows = queryResult.map(row => columns.map(col => escapeCSV(row[col])).join(','));
+    const csvContent = [header, ...rows].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${selectedTable || 'export'}_${new Date().getTime()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handleGenerateUpdate = () => {
     if (Object.keys(modifiedRows).length === 0) {
       showToast("没有检测到任何修改！", 'error');
@@ -199,10 +280,24 @@ const SqlEditorPage = () => {
     let sqls: string[] = [];
     for (const [rIdxStr, modifications] of Object.entries(modifiedRows)) {
       const rIdx = parseInt(rIdxStr);
-      const cols = Object.keys(modifications);
-      if (cols.length === 0) continue;
       
-      if (rIdx >= originalRowCount) {
+      const row = queryResult[rIdx];
+      if (!row) continue;
+
+      if ((modifications as any).__deleted) {
+        if (!(row as any).__isNewRow) {
+          const originalRow = row;
+          const whereClauses = Object.entries(originalRow).map(([col, val]) => formatWhere(col, val));
+          const sql = `DELETE FROM ${selectedSchema}.${selectedTable} WHERE ${whereClauses.join(" AND ")};`;
+          sqls.push(sql);
+        }
+        continue;
+      }
+
+      const cols = Object.keys(modifications).filter(k => k !== '__deleted');
+      if (cols.length === 0) continue;
+
+      if ((row as any).__isNewRow) {
         // 新增行 -> INSERT
         const vals = cols.map(col => formatVal(modifications[col]));
         const sql = `INSERT INTO ${selectedSchema}.${selectedTable} (${cols.join(", ")}) VALUES (${vals.join(", ")});`;
@@ -210,7 +305,6 @@ const SqlEditorPage = () => {
       } else {
         // 原有行 -> UPDATE
         const originalRow = queryResult[rIdx];
-        if (!originalRow) continue;
         
         const setClauses = cols.map(col => `${col} = ${formatVal(modifications[col])}`);
         const whereClauses = Object.entries(originalRow).map(([col, val]) => formatWhere(col, val));
@@ -311,6 +405,9 @@ const SqlEditorPage = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ margin: 0 }}>查询结果</h3>
             <div style={{ display: 'flex', gap: '1rem' }}>
+              <button onClick={handleExportCSV} style={{ ...btnIconStyle, backgroundColor: 'rgba(255,255,255,0.1)', color: 'white' }}>
+                <Download size={16} /> 导出 CSV
+              </button>
               {!isEditing ? (
                 <button onClick={() => setIsEditing(true)} style={{ ...btnIconStyle, backgroundColor: 'rgba(255,255,255,0.1)', color: 'white' }}>
                   <Edit3 size={16} /> 进入编辑模式
@@ -320,7 +417,7 @@ const SqlEditorPage = () => {
                   <button onClick={() => { 
                       setIsEditing(false); 
                       setModifiedRows({}); 
-                      setQueryResult(prev => prev.slice(0, originalRowCount)); 
+                      setQueryResult(prev => prev.filter(r => !(r as any).__isNewRow)); 
                     }} style={{ ...btnIconStyle, backgroundColor: 'rgba(255,255,255,0.1)', color: 'white' }}>
                     <X size={16} /> 取消编辑
                   </button>
@@ -339,6 +436,7 @@ const SqlEditorPage = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.9rem' }}>
               <thead>
                 <tr style={{ backgroundColor: 'rgba(255,255,255,0.05)', borderBottom: '1px solid var(--border)' }}>
+                  {isEditing && <th style={{ width: '80px', padding: '0.8rem', textAlign: 'center' }}>操作</th>}
                   {columns.map(col => (
                     <th key={col} style={{ padding: '0.8rem', whiteSpace: 'nowrap' }}>{col}</th>
                   ))}
@@ -347,31 +445,55 @@ const SqlEditorPage = () => {
               <tbody>
                 {queryResult.map((row, rIdx) => (
                   <tr key={rIdx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    {isEditing && (
+                      <td style={{ padding: '0.5rem', textAlign: 'center', whiteSpace: 'nowrap', backgroundColor: (row as any).__isNewRow ? 'rgba(16, 185, 129, 0.15)' : 'transparent' }}>
+                        <div style={{ display: 'flex', gap: '4px', justifyContent: 'center' }}>
+                          <button 
+                            onClick={() => handleDeleteRow(rIdx)} 
+                            title={modifiedRows[rIdx]?.__deleted ? "撤销删除" : "删除此行"} 
+                            style={{ padding: '2px 8px', cursor: 'pointer', borderRadius: '4px', backgroundColor: modifiedRows[rIdx]?.__deleted ? 'var(--border)' : 'var(--danger)', border: 'none', color: 'white', fontWeight: 'bold' }}
+                          >-</button>
+                          <button 
+                            onClick={() => handleDuplicateRow(rIdx)} 
+                            title="复制此行" 
+                            style={{ padding: '2px 8px', cursor: 'pointer', borderRadius: '4px', backgroundColor: 'var(--primary)', border: 'none', color: 'white', fontWeight: 'bold', opacity: modifiedRows[rIdx]?.__deleted ? 0.5 : 1, pointerEvents: modifiedRows[rIdx]?.__deleted ? 'none' : 'auto' }}
+                          >+</button>
+                        </div>
+                      </td>
+                    )}
                     {columns.map(col => {
-                      const isModified = modifiedRows[rIdx] && modifiedRows[rIdx].hasOwnProperty(col);
-                      const displayVal = isModified ? modifiedRows[rIdx][col] : row[col];
-                      const isNewRow = rIdx >= originalRowCount;
+                      const isDeleted = modifiedRows[rIdx] && (modifiedRows[rIdx] as any).__deleted;
+                      const isModified = modifiedRows[rIdx] && modifiedRows[rIdx].hasOwnProperty(col) && !isDeleted;
+                      const displayVal = (modifiedRows[rIdx] && modifiedRows[rIdx].hasOwnProperty(col)) ? modifiedRows[rIdx][col] : row[col];
+                      const isNewRow = (row as any).__isNewRow;
                       
                       return (
                         <td key={col} style={{ 
                           padding: '0.5rem', 
                           whiteSpace: 'nowrap',
-                          backgroundColor: isNewRow ? 'rgba(59, 130, 246, 0.15)' : (isModified ? 'rgba(16, 185, 129, 0.2)' : 'transparent'),
-                          transition: 'background-color 0.2s'
+                          backgroundColor: isDeleted ? 'rgba(239, 68, 68, 0.15)' : (isNewRow ? 'rgba(16, 185, 129, 0.15)' : (isModified ? 'rgba(249, 115, 22, 0.2)' : 'transparent')),
+                          transition: 'background-color 0.2s',
+                          opacity: isDeleted && !isEditing ? 0.6 : 1,
+                          textDecoration: isDeleted && !isEditing ? 'line-through' : 'none'
                         }}>
                           {isEditing ? (
-                            <input 
-                              type="text" 
+                            <textarea 
+                              rows={1}
                               value={displayVal === null ? '' : displayVal}
                               onChange={e => handleCellChange(rIdx, col, e.target.value)}
-                              onPaste={e => handlePaste(e, rIdx, col)}
+                              onPaste={e => handlePaste(e as any, rIdx, col)}
+                              disabled={isDeleted}
                               style={{ 
                                 width: '100%', 
+                                minWidth: '100px',
                                 padding: '0.3rem', 
-                                backgroundColor: isModified || isNewRow ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.2)', 
-                                border: isNewRow ? '1px solid var(--primary)' : (isModified ? '1px solid var(--success)' : '1px solid transparent'), 
+                                resize: 'horizontal',
+                                overflow: 'auto',
+                                backgroundColor: isDeleted ? 'rgba(0,0,0,0.1)' : (isNewRow ? 'rgba(0,0,0,0.3)' : (isModified ? 'rgba(249, 115, 22, 0.1)' : 'rgba(0,0,0,0.2)')), 
+                                border: isDeleted ? '1px solid transparent' : (isNewRow ? '1px solid rgba(16, 185, 129, 0.5)' : (isModified ? '1px solid rgba(249, 115, 22, 0.5)' : '1px solid transparent')), 
                                 color: 'white',
-                                borderRadius: '4px'
+                                borderRadius: '4px',
+                                textDecoration: isDeleted ? 'line-through' : 'none'
                               }}
                             />
                           ) : (
