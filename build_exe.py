@@ -10,14 +10,33 @@ def main():
     root_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(root_dir)
     
-    # 检查前端是否已构建
-    if not os.path.exists(os.path.join(root_dir, "frontend", "dist")):
-        print("错误：未找到 frontend/dist 目录。请先在 frontend 目录下运行 npm install && npm run build")
+    import shutil
+    
+    frontend_dir = os.path.join(root_dir, "frontend")
+    dist_dir = os.path.join(frontend_dir, "dist")
+    
+    # 1. 彻底清理前端旧缓存
+    print("正在清理前端构建缓存...")
+    if os.path.exists(dist_dir):
+        shutil.rmtree(dist_dir)
+        
+    # 2. 强制重新编译前端
+    print("正在全新编译前端代码 (npm install && npm run build)... 这可能需要一点时间。")
+    try:
+        subprocess.check_call("npm install && npm run build", shell=True, cwd=frontend_dir)
+    except subprocess.CalledProcessError:
+        print("错误：前端构建失败，请检查 npm 环境或代码。")
         sys.exit(1)
         
     # 安装 pyinstaller
-    print("安装 PyInstaller...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller"])
+    print("安装/更新 PyInstaller...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller", "--upgrade"])
+    
+    # 清理 PyInstaller 缓存
+    backend_dir = os.path.join(root_dir, "backend")
+    build_dir = os.path.join(backend_dir, "build")
+    if os.path.exists(build_dir):
+        shutil.rmtree(build_dir)
     
     # 构建打包命令
     separator = ";" if platform.system() == "Windows" else ":"
@@ -27,6 +46,7 @@ def main():
         "--name", "DataOG",
         "--onefile",
         "--noconsole",
+        "--clean",
         "--icon", "../OG.ico",
         "--add-data", f"../frontend/dist{separator}frontend/dist",
         "--add-data", f"../OG.ico{separator}.",
