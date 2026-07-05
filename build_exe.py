@@ -69,23 +69,12 @@ def main():
         if os.path.exists(req_path):
             subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], cwd=backend_dir)
     
-    # 离线环境支持：自动下载并打包 Chroma 向量模型
+    # 离线环境支持：由于模型已经直接内置于 Git 仓库中 (models/all-MiniLM-L6-v2)，
+    # 此处不需要再从 S3 下载，只需要确保它被打包进 exe 即可。
     model_dir = os.path.join(backend_dir, "models", "all-MiniLM-L6-v2")
     if not os.path.exists(model_dir):
-        print("正在下载 ChromaDB 离线向量模型 (约 90MB)，以支持内网无外网环境下的完全独立运行...")
-        os.makedirs(model_dir, exist_ok=True)
-        import urllib.request
-        import tarfile
-        model_url = "https://chroma-onnx-models.s3.amazonaws.com/all-MiniLM-L6-v2/onnx.tar.gz"
-        tar_path = os.path.join(model_dir, "onnx.tar.gz")
-        try:
-            urllib.request.urlretrieve(model_url, tar_path)
-            with tarfile.open(tar_path, "r:gz") as tar:
-                tar.extractall(path=model_dir)
-            os.remove(tar_path)
-            print("离线模型下载提取完成！")
-        except Exception as e:
-            print(f"[警告] 离线模型下载失败: {e}。如果不需要离线功能，可忽略。")
+        print(f"[警告] 离线模型文件夹不存在: {model_dir}，可能是拉取代码时缺失。")
+
     
     # 清理 PyInstaller 缓存
     build_dir = os.path.join(backend_dir, "build")
