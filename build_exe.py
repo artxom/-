@@ -66,9 +66,6 @@ def main():
         print("安装/更新 PyInstaller 及后端依赖...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller", "--upgrade"])
         req_path = os.path.join(backend_dir, "requirements.txt")
-        if os.path.exists(req_path):
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], cwd=backend_dir)
-    
     # 清理 PyInstaller 缓存
     build_dir = os.path.join(backend_dir, "build")
     if os.path.exists(build_dir):

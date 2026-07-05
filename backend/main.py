@@ -6,6 +6,9 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import json
 import os
+import sys
+import shutil
+
 from database import db_manager, DBConfig
 from agent import agent_config, run_agent_loop_stream
 from rag import rag_manager
