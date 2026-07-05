@@ -6,7 +6,20 @@ import datetime
 import re
 
 def main():
-    print("正在准备打包成单文件可执行程序...")
+    print("==================================================")
+    print(" 打包优化选项")
+    print("==================================================")
+    print("1. [极速打包] 单目录模式 + 仅增量构建前端 (推荐，速度最快)")
+    print("2. [单文件模式] 单一可执行文件 + 仅增量构建前端 (较慢)")
+    print("3. [完全构建] 重新拉取所有依赖 + 单文件生成 (最慢)")
+    choice = input("请输入选项 [1/2/3] (默认 1): ").strip()
+    if not choice: choice = '1'
+    
+    is_onedir = (choice == '1')
+    skip_npm_install = choice in ('1', '2')
+    skip_pyinstaller_upgrade = choice in ('1', '2')
+
+    print("\n正在准备打包程序...")
     
     # 确保当前在项目根目录
     root_dir = os.path.dirname(os.path.abspath(__file__))
@@ -30,22 +43,34 @@ def main():
     with open(index_path, "w", encoding="utf-8") as f:
         f.write(html_content)
     
-    # 1. 彻底清理前端旧缓存
-    print("正在清理前端构建缓存...")
-    if os.path.exists(dist_dir):
-        shutil.rmtree(dist_dir)
+    # 1. 彻底清理前端旧缓存 (如果完全构建的话)
+    if not skip_npm_install:
+        print("正在清理前端构建缓存...")
+        if os.path.exists(dist_dir):
+            shutil.rmtree(dist_dir)
         
-    # 2. 强制重新编译前端
-    print("正在全新编译前端代码 (npm install && npm run build)... 这可能需要一点时间。")
-    try:
-        subprocess.check_call("npm install && npm run build", shell=True, cwd=frontend_dir)
-    except subprocess.CalledProcessError:
-        print("错误：前端构建失败，请检查 npm 环境或代码。")
-        sys.exit(1)
+    # 2. 编译前端
+    if skip_npm_install:
+        print("正在增量编译前端代码 (npm run build)...")
+        try:
+            subprocess.check_call("npm run build", shell=True, cwd=frontend_dir)
+        except subprocess.CalledProcessError:
+            print("错误：前端构建失败，请检查代码。")
+            sys.exit(1)
+    else:
+        print("正在全新编译前端代码 (npm install && npm run build)... 这可能需要一点时间。")
+        try:
+            subprocess.check_call("npm install && npm run build", shell=True, cwd=frontend_dir)
+        except subprocess.CalledProcessError:
+            print("错误：前端构建失败，请检查 npm 环境或代码。")
+            sys.exit(1)
         
     # 安装 pyinstaller
-    print("安装/更新 PyInstaller...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller", "--upgrade"])
+    if skip_pyinstaller_upgrade:
+        print("跳过 PyInstaller 依赖更新...")
+    else:
+        print("安装/更新 PyInstaller...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller", "--upgrade"])
     
     # 清理 PyInstaller 缓存
     backend_dir = os.path.join(root_dir, "backend")
@@ -61,7 +86,7 @@ def main():
     cmd = [
         sys.executable, "-m", "PyInstaller",
         "--name", exe_name,
-        "--onefile",
+        "--onedir" if is_onedir else "--onefile",
         "--noconsole",
         "--clean",
         "--icon", "../OG.ico",
@@ -88,8 +113,16 @@ def main():
     print("\n" + "="*50)
     print("打包完成！")
     dist_path = os.path.join(backend_dir, "dist")
-    print(f"你的独立可执行文件已生成在: {dist_path}")
-    print("由于已经内嵌了前端静态资源，你只需要把该可执行文件复制到内网任意一台电脑双击运行即可。")
+    
+    if is_onedir:
+        out_dir = os.path.join(dist_path, exe_name)
+        print(f"你的独立可执行文件目录已生成在: {out_dir}")
+        print(f"启动方式: 双击目录内的 {exe_name} 即可运行")
+        print("注意: 拷贝给别人时，需要打包并发送整个目录 (不能仅发送 exe 文件)！")
+    else:
+        print(f"你的独立可执行文件已生成在: {dist_path}")
+        print("只需把该可执行文件复制到内网任意一台电脑双击运行即可。")
+    
     print("="*50)
 
 if __name__ == "__main__":
