@@ -291,7 +291,14 @@ def export_knowledge():
 async def import_preview(file: UploadFile = File(...)):
     try:
         content = await file.read()
-        items = json.loads(content)
+        try:
+            content_str = content.decode('utf-8-sig')
+        except Exception:
+            content_str = content.decode('gbk', errors='ignore')
+            
+        items = json.loads(content_str)
+        if not isinstance(items, list):
+            raise ValueError("导入的 JSON 格式不正确，必须是一个对象数组。")
         
         existing = rag_manager.get_all_knowledge()
         existing_contents = {item['content']: item for item in existing}
@@ -320,7 +327,10 @@ async def import_preview(file: UploadFile = File(...)):
                 
         return {"status": "success", "diff": diff}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        import traceback
+        err_msg = traceback.format_exc()
+        print(f"Import preview error: {err_msg}")
+        raise HTTPException(status_code=400, detail=f"文件解析失败: {str(e)}")
 
 class ImportConfirmRequest(BaseModel):
     updates: List[Dict[str, Any]]
