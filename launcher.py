@@ -268,10 +268,14 @@ class LauncherApp:
             self.log(">>> 正在为您重新构建最新的前端产物...", "info")
             self.root.update()
             try:
-                subprocess.run(["npm", "run", "build"], cwd=os.path.abspath("frontend"), check=True, stdout=subprocess.DEVNULL)
-                self.log(">>> 前端构建成功！", "success")
+                result = subprocess.run("npm run build", shell=True, cwd=os.path.abspath("frontend"), capture_output=True, text=True)
+                if result.returncode == 0:
+                    self.log(">>> 前端构建成功！", "success")
+                else:
+                    self.log(f">>> 前端构建失败: {result.stderr.strip()}", "error")
+                    return
             except Exception as e:
-                self.log(f">>> 前端构建失败: {str(e)}", "error")
+                self.log(f">>> 前端构建报错: {str(e)}", "error")
                 return
 
         self._set_running_state(True)

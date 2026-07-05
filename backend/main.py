@@ -280,7 +280,7 @@ async def extract_knowledge_from_csv(file: UploadFile = File(...)):
     try:
         file_bytes = await file.read()
         return StreamingResponse(
-            extract_lineage_stream(file_bytes),
+            extract_lineage_stream(file_bytes, file.filename),
             media_type="text/event-stream"
         )
     except Exception as e:

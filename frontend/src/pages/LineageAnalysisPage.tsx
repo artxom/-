@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BookOpen, Edit2, Trash2, Save, X, Loader2 } from 'lucide-react';
+import { BookOpen, Edit2, Trash2, Save, X, Loader2, UploadCloud, AlertCircle, CheckCircle } from 'lucide-react';
 
 interface Knowledge {
   id: string;
@@ -8,6 +8,7 @@ interface Knowledge {
   created_at?: string;
 }
 
+import { useTasks } from '../contexts/TaskContext';
 const KnowledgePage = () => {
   const [knowledgeList, setKnowledgeList] = useState<Knowledge[]>([]);
   const [loading, setLoading] = useState(true);
@@ -15,6 +16,9 @@ const KnowledgePage = () => {
   const [editContent, setEditContent] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [newContent, setNewContent] = useState('');
+  
+  const { extractTasks, uploadFile, removeTask } = useTasks();
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const fetchKnowledge = async () => {
     try {
@@ -69,6 +73,20 @@ const KnowledgePage = () => {
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+    
+    const file = files[0];
+    uploadFile(file, () => {
+        fetchKnowledge();
+    });
+    
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div className="flex-row mb-6" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -77,6 +95,17 @@ const KnowledgePage = () => {
           <h1 style={{ margin: 0, marginLeft: '0.5rem' }}>知识库管理</h1>
         </div>
         <div style={{ display: 'flex', gap: '1rem' }}>
+            <input 
+                type="file" 
+                accept=".csv,.sql" 
+                ref={fileInputRef} 
+                style={{ display: 'none' }} 
+                onChange={handleFileUpload}
+            />
+            <button className="secondary" onClick={() => fileInputRef.current?.click()}>
+              <UploadCloud size={16} />
+              批量血缘提炼 (CSV/SQL)
+            </button>
             <button className="primary" onClick={() => setIsAdding(true)}>
               + 添加知识
             </button>
@@ -90,13 +119,55 @@ const KnowledgePage = () => {
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: '4rem' }}>
           <Loader2 size={32} className="spinner" />
         </div>
-      ) : knowledgeList.length === 0 && !isAdding ? (
+      ) : knowledgeList.length === 0 && extractTasks.length === 0 ? (
         <div className="glass-panel" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
           <BookOpen size={48} style={{ opacity: 0.3, marginBottom: '1rem' }} />
           <p>当前知识库为空，快去与 Agent 交互并保存新知识吧！</p>
         </div>
       ) : (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', paddingRight: '0.5rem' }}>
+
+          {extractTasks.map(task => {
+             const isRunning = task.status === 'running';
+             const isError = task.status === 'error';
+             const isFinished = task.status === 'finished';
+             const statusColor = isError ? 'var(--danger)' : (isFinished ? 'var(--success)' : 'var(--accent)');
+             const statusIcon = isRunning ? <Loader2 size={18} className="spinner" /> : (isError ? <AlertCircle size={18} /> : <CheckCircle size={18} />);
+
+             return (
+               <div key={task.id} className="glass-panel" style={{ padding: '1.5rem', border: `1px solid ${statusColor}`, marginBottom: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500, color: statusColor }}>
+                          {statusIcon} {task.filename}
+                      </div>
+                      {task.status !== 'running' && (
+                          <button className="icon-btn" onClick={() => removeTask(task.id)} title="清除日志" style={{ padding: '0.2rem' }}>
+                              <X size={16} />
+                          </button>
+                      )}
+                  </div>
+                  
+                  {isRunning && task.progress.total > 0 && (
+                      <div style={{ width: '100%', backgroundColor: 'rgba(0,0,0,0.5)', height: '6px', borderRadius: '3px', marginBottom: '1rem', overflow: 'hidden' }}>
+                          <div style={{ 
+                              width: `${(task.progress.current / task.progress.total) * 100}%`, 
+                              backgroundColor: 'var(--accent)', 
+                              height: '100%', 
+                              transition: 'width 0.3s ease' 
+                          }} />
+                      </div>
+                  )}
+                  
+                  <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '8px', maxHeight: '150px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                      {task.logs.map((log, i) => (
+                          <div key={i} style={{ color: log.includes('错误') || log.includes('失败') || log.includes('异常') ? 'var(--danger)' : (log.includes('完成') || log.includes('成功') ? 'var(--primary)' : 'var(--text-muted)'), marginBottom: '0.2rem' }}>
+                              {log}
+                          </div>
+                      ))}
+                  </div>
+               </div>
+             );
+          })}
           {isAdding && (
             <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem', border: '1px solid var(--primary)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -113,7 +184,7 @@ const KnowledgePage = () => {
               <textarea
                 value={newContent}
                 onChange={e => setNewContent(e.target.value)}
-                style={{ minHeight: '100px', width: '100%', resize: 'vertical', padding: '0.5rem', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                style={{ minHeight: '100px', width: '100%', resize: 'vertical', padding: '0.8rem', borderRadius: '8px', backgroundColor: 'rgba(0,0,0,0.2)', color: 'var(--text)', border: '1px solid var(--border)' }}
                 autoFocus
                 placeholder="请输入要让 Agent 记住的业务口径、造数规则等..."
               />
@@ -123,7 +194,7 @@ const KnowledgePage = () => {
             <div key={k.id} className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
-                  ID: {k.id} • {new Date(k.created_at || '').toLocaleString()}
+                  ID: {k.id} • {new Date(k.created_at).toLocaleString()}
                 </span>
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
                   {editingId === k.id ? (
@@ -152,13 +223,11 @@ const KnowledgePage = () => {
                 <textarea
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
-                  style={{ minHeight: '100px', width: '100%', resize: 'vertical', padding: '0.5rem', borderRadius: '4px', backgroundColor: 'rgba(0,0,0,0.2)', color: 'var(--text)', border: '1px solid var(--border)' }}
+                  style={{ minHeight: '100px', width: '100%', resize: 'vertical', padding: '0.8rem', borderRadius: '8px', backgroundColor: 'rgba(0,0,0,0.2)', color: 'var(--text)', border: '1px solid var(--border)' }}
                   autoFocus
                 />
               ) : (
-                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5, fontSize: '0.95rem' }}>
-                  {k.content}
-                </div>
+                <div style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>{k.content}</div>
               )}
             </div>
           ))}

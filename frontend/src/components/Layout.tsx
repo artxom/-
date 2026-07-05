@@ -43,6 +43,7 @@ const Layout = () => {
     { path: '/editor', char: '算', label: '数据探查' },
     { path: '/basic', char: '篡', label: '数据修改' },
     { path: '/agent', char: '答', label: '智能造数' },
+    { path: '/lineage', char: '等', label: '血缘分析' },
     { path: '/knowledge', char: '籍', label: '知识管理' },
     { path: '/analytics', char: '筹', label: '用量统计' },
   ];
