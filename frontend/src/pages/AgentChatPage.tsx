@@ -69,7 +69,6 @@ const AgentChatPage = () => {
 
       {/* Main Chat Area */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflow: 'hidden' }}>
-        {/* Header */}
         <div className="glass-panel" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '1rem 1.5rem' }}>
            <h2 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
               <DatabaseZap size={24} /> 智能造数
@@ -77,7 +76,16 @@ const AgentChatPage = () => {
            <button 
               onClick={handleExtractKnowledge}
               disabled={extracting || loading || history.length === 0}
-              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', backgroundColor: 'rgba(167, 139, 250, 0.2)', border: '1px solid rgba(167, 139, 250, 0.5)', borderRadius: '6px', color: '#c4b5fd', cursor: 'pointer' }}
+              style={{ 
+                display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem 1rem', 
+                backgroundColor: 'rgba(167, 139, 250, 0.2)', 
+                border: '1px solid rgba(167, 139, 250, 0.5)', 
+                borderRadius: '6px', 
+                color: '#c4b5fd', 
+                cursor: (extracting || loading || history.length === 0) ? 'not-allowed' : 'pointer',
+                opacity: (extracting || loading || history.length === 0) ? 0.5 : 1
+              }}
+              title={history.length === 0 ? "请先与 Agent 产生对话历史后再尝试归纳" : "归纳全局知识"}
             >
               {extracting ? <Loader2 size={16} className="spinner" /> : <BookOpen size={16} />} 归纳全局知识
             </button>

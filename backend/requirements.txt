@@ -7,3 +7,5 @@ openai
 python-dotenv
 cryptography
 chromadb
+python-multipart
+pandas

@@ -41,9 +41,11 @@ def main():
     # 构建打包命令
     separator = ";" if platform.system() == "Windows" else ":"
     
+    exe_name = "DataOG_v26.7.5.17"
+    
     cmd = [
         sys.executable, "-m", "PyInstaller",
-        "--name", "DataOG",
+        "--name", exe_name,
         "--onefile",
         "--noconsole",
         "--clean",

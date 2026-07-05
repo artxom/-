@@ -265,16 +265,14 @@ class LauncherApp:
         
         if not is_frozen:
             frontend_dist = os.path.abspath("frontend/dist")
-            if not os.path.exists(frontend_dist):
-                self.log(">>> 未检测到前端 dist 目录，正在为您自动构建...", "info")
-                self.root.update()
-                try:
-                    subprocess.run(["npm", "install"], cwd=os.path.abspath("frontend"), check=True, stdout=subprocess.DEVNULL)
-                    subprocess.run(["npm", "run", "build"], cwd=os.path.abspath("frontend"), check=True, stdout=subprocess.DEVNULL)
-                    self.log(">>> 前端构建成功！", "success")
-                except Exception as e:
-                    self.log(f">>> 前端构建失败: {str(e)}", "error")
-                    return
+            self.log(">>> 正在为您重新构建最新的前端产物...", "info")
+            self.root.update()
+            try:
+                subprocess.run(["npm", "run", "build"], cwd=os.path.abspath("frontend"), check=True, stdout=subprocess.DEVNULL)
+                self.log(">>> 前端构建成功！", "success")
+            except Exception as e:
+                self.log(f">>> 前端构建失败: {str(e)}", "error")
+                return
 
         self._set_running_state(True)
         self.log(f">>> 正在启动服务 (端口 {port})...", "info")

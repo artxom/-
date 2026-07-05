@@ -272,6 +272,20 @@ def delete_knowledge(knowledge_id: str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+from fastapi import UploadFile, File
+from lineage_extractor import extract_lineage_stream
+
+@app.post("/api/knowledge/extract_from_csv")
+async def extract_knowledge_from_csv(file: UploadFile = File(...)):
+    try:
+        file_bytes = await file.read()
+        return StreamingResponse(
+            extract_lineage_stream(file_bytes),
+            media_type="text/event-stream"
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @app.get("/api/analytics")
 def get_analytics():
     try:
@@ -339,5 +353,5 @@ if __name__ == "__main__":
         
         uvicorn.run(app, host="127.0.0.1", port=free_port)
     else:
-        # 开发模式下使用字符串并开启热更新
-        uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+        # 开发模式下使用字符串并开启热更新，排除 json 避免修改配置时触发重启导致前端 502
+        uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True, reload_excludes=["*.json"])

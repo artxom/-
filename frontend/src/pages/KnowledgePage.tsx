@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { BookOpen, Edit2, Trash2, Save, X, Loader2 } from 'lucide-react';
+import { BookOpen, Edit2, Trash2, Save, X, Loader2, UploadCloud } from 'lucide-react';
 
 interface Knowledge {
   id: string;
@@ -15,6 +15,10 @@ const KnowledgePage = () => {
   const [editContent, setEditContent] = useState('');
   const [isAdding, setIsAdding] = useState(false);
   const [newContent, setNewContent] = useState('');
+  
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractLogs, setExtractLogs] = useState<string[]>([]);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   const fetchKnowledge = async () => {
     try {
@@ -69,6 +73,59 @@ const KnowledgePage = () => {
     }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    
+    setIsExtracting(true);
+    setExtractLogs(['🚀 开始上传并启动后台分析流...', '文件: ' + file.name]);
+    
+    const formData = new FormData();
+    formData.append('file', file);
+    
+    try {
+      const response = await fetch('/api/knowledge/extract_from_csv', {
+        method: 'POST',
+        body: formData,
+      });
+      
+      if (!response.body) throw new Error("ReadableStream not supported");
+      
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop() || '';
+        
+        for (const part of parts) {
+          if (part.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(part.substring(6));
+              setExtractLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${data.message}`]);
+              if (data.type === 'finished') {
+                 setTimeout(() => fetchKnowledge(), 1500);
+              }
+            } catch (err) {}
+          }
+        }
+      }
+    } catch (e: any) {
+      setExtractLogs(prev => [...prev, `[错误] ${e.message}`]);
+    } finally {
+      setIsExtracting(false);
+    }
+    
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="animate-fade-in" style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div className="flex-row mb-6" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -76,9 +133,22 @@ const KnowledgePage = () => {
           <BookOpen size={28} color="var(--primary)" />
           <h1 style={{ margin: 0, marginLeft: '0.5rem' }}>知识库管理</h1>
         </div>
-        <button className="primary" onClick={() => setIsAdding(true)}>
-          + 添加知识
-        </button>
+        <div style={{ display: 'flex', gap: '1rem' }}>
+            <input 
+                type="file" 
+                accept=".csv" 
+                ref={fileInputRef} 
+                style={{ display: 'none' }} 
+                onChange={handleFileUpload}
+            />
+            <button className="secondary" onClick={() => fileInputRef.current?.click()} disabled={isExtracting}>
+              {isExtracting ? <Loader2 size={16} className="spinner" /> : <UploadCloud size={16} />}
+              批量血缘提炼 (CSV)
+            </button>
+            <button className="primary" onClick={() => setIsAdding(true)}>
+              + 添加知识
+            </button>
+        </div>
       </div>
       <p style={{ color: 'var(--text-muted)', marginBottom: '2rem' }}>
         这里存放了 Agent 在过去的会话中自动学习并记录的业务规则、用户习惯和造数场景。您可以手动查阅、修改或删除它们。
@@ -88,13 +158,31 @@ const KnowledgePage = () => {
         <div style={{ display: 'flex', justifyContent: 'center', marginTop: '4rem' }}>
           <Loader2 size={32} className="spinner" />
         </div>
-      ) : knowledgeList.length === 0 ? (
+      ) : knowledgeList.length === 0 && !isExtracting ? (
         <div className="glass-panel" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-muted)' }}>
           <BookOpen size={48} style={{ opacity: 0.3, marginBottom: '1rem' }} />
           <p>当前知识库为空，快去与 Agent 交互并保存新知识吧！</p>
         </div>
       ) : (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', paddingRight: '0.5rem' }}>
+          {(isExtracting || extractLogs.length > 0) && (
+             <div className="glass-panel" style={{ padding: '1.5rem', border: '1px solid var(--accent)' }}>
+                <h3 style={{ margin: '0 0 1rem 0', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    {isExtracting ? <Loader2 size={18} className="spinner" /> : <BookOpen size={18} />} 
+                    {isExtracting ? '正在后台执行血缘提炼任务...' : '血缘提炼任务完成'}
+                </h3>
+                <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '1rem', borderRadius: '8px', maxHeight: '200px', overflowY: 'auto', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                    {extractLogs.map((log, i) => (
+                        <div key={i} style={{ color: log.includes('错误') ? 'var(--danger)' : (log.includes('完成') || log.includes('成功') ? 'var(--primary)' : 'var(--text-muted)'), marginBottom: '0.2rem' }}>
+                            {log}
+                        </div>
+                    ))}
+                </div>
+                {!isExtracting && (
+                    <button className="primary" style={{ marginTop: '1rem' }} onClick={() => setExtractLogs([])}>关闭面板</button>
+                )}
+             </div>
+          )}
           {isAdding && (
             <div className="glass-panel" style={{ display: 'flex', flexDirection: 'column', gap: '1rem', padding: '1.5rem', border: '1px solid var(--primary)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
