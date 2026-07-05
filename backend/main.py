@@ -14,6 +14,17 @@ from analytics import analytics_manager
 import uvicorn
 from security import encrypt_secret, decrypt_secret
 
+# 为了防止 PyInstaller 打包时漏掉 FastAPI 动态引用的表单解析库
+try:
+    import multipart
+except ImportError:
+    pass
+try:
+    import python_multipart
+except ImportError:
+    pass
+
+
 app = FastAPI()
 
 app.add_middleware(

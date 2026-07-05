@@ -119,8 +119,8 @@ def main():
         "--hidden-import", "uvicorn",
         "--hidden-import", "backend.main",
         "--hidden-import", "main",
-        "--hidden-import", "python-multipart",
         "--hidden-import", "multipart",
+        "--hidden-import", "python_multipart",
         "--collect-all", "chromadb",
         "--paths", ".",
         "../launcher.py"
