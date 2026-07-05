@@ -81,6 +81,20 @@ def main():
     # 构建打包命令
     separator = ";" if platform.system() == "Windows" else ":"
     
+    # [釜底抽薪] 读取 requirements.txt，自动为所有核心依赖加上 --copy-metadata 和 --hidden-import
+    # 彻底杜绝类似 python-multipart 这种因为框架底层采用反射或动态检测 metadata 导致的“漏包”玄学问题
+    req_path = os.path.join(backend_dir, "requirements.txt")
+    auto_deps_args = []
+    if os.path.exists(req_path):
+        with open(req_path, "r", encoding="utf-8") as f:
+            for line in f:
+                pkg = line.strip().split("==")[0].strip()
+                # 过滤掉注释、空行
+                if pkg and not pkg.startswith("#"):
+                    auto_deps_args.extend(["--copy-metadata", pkg])
+                    # 对于一些知名的 pip 包名和 import 模块名不一致的，PyInstaller 往往无法自动追踪
+                    auto_deps_args.extend(["--hidden-import", pkg])
+    
     exe_name = f"DataOG_{version_str}"
     
     cmd = [
@@ -100,7 +114,7 @@ def main():
         "--collect-all", "chromadb",
         "--paths", ".",
         "../launcher.py"
-    ]
+    ] + auto_deps_args
     
     print(f"执行命令: {' '.join(cmd)}")
     
