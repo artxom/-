@@ -21,17 +21,22 @@ class RAGManager:
             
         ids = [str(uuid.uuid4()) for _ in contents]
         
-        if metadatas:
-            self.collection.add(
-                documents=contents,
-                metadatas=metadatas,
-                ids=ids
-            )
-        else:
-            self.collection.add(
-                documents=contents,
-                ids=ids
-            )
+        from datetime import datetime
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        final_metadatas = []
+        for i, meta in enumerate(metadatas or [{}] * len(contents)):
+            new_meta = dict(meta or {})
+            if "created_at" not in new_meta:
+                new_meta["created_at"] = now
+            if "target" not in new_meta:
+                new_meta["target"] = ""
+            final_metadatas.append(new_meta)
+
+        self.collection.add(
+            documents=contents,
+            metadatas=final_metadatas,
+            ids=ids
+        )
 
     def search_knowledge(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         results = self.collection.query(
@@ -64,25 +69,31 @@ class RAGManager:
             ids = results['ids']
             
             for doc, meta, doc_id in zip(docs, metas, ids):
+                safe_meta = meta or {}
                 formatted_results.append({
                     "id": doc_id,
                     "content": doc,
-                    "metadata": meta
+                    "target": safe_meta.get("target", ""),
+                    "created_at": safe_meta.get("created_at", ""),
+                    "metadata": safe_meta
                 })
         return formatted_results
 
     def update_knowledge(self, doc_id: str, new_content: str, metadata: Dict[str, Any] = None):
+        existing_res = self.collection.get(ids=[doc_id])
+        if not existing_res or not existing_res['documents']:
+            return
+            
+        existing_meta = existing_res['metadatas'][0] if existing_res['metadatas'] and existing_res['metadatas'][0] else {}
+        
         if metadata:
-            self.collection.update(
-                ids=[doc_id],
-                documents=[new_content],
-                metadatas=[metadata]
-            )
-        else:
-            self.collection.update(
-                ids=[doc_id],
-                documents=[new_content]
-            )
+            existing_meta.update(metadata)
+            
+        self.collection.update(
+            ids=[doc_id],
+            documents=[new_content],
+            metadatas=[existing_meta]
+        )
 
     def delete_knowledge(self, doc_id: str):
         self.collection.delete(ids=[doc_id])

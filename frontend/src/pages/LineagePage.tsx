@@ -1,21 +1,36 @@
-import React from 'react';
-import { UploadCloud, Loader2, AlertCircle, CheckCircle, X, Network } from 'lucide-react';
+import React, { useState } from 'react';
+import { UploadCloud, Loader2, AlertCircle, CheckCircle, X, Network, PauseCircle, PlayCircle, StopCircle, RefreshCw } from 'lucide-react';
 import { useTasks } from '../contexts/TaskContext';
 
 const LineagePage = () => {
-  const { extractTasks, uploadFile, removeTask } = useTasks();
+  const { extractTasks, uploadFile, controlTask, removeTask, retryFailedTask } = useTasks();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  
+  const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
+  const [uploadPrompt, setUploadPrompt] = useState('');
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     if (files.length === 0) return;
     
-    const file = files[0];
-    uploadFile(file);
+    setPendingUploadFile(files[0]);
     
     if (fileInputRef.current) {
         fileInputRef.current.value = '';
     }
+  };
+
+  const confirmUpload = () => {
+    if (pendingUploadFile) {
+      uploadFile(pendingUploadFile, uploadPrompt, undefined);
+      setPendingUploadFile(null);
+      setUploadPrompt('');
+    }
+  };
+
+  const cancelUpload = () => {
+    setPendingUploadFile(null);
+    setUploadPrompt('');
   };
 
   return (
@@ -52,32 +67,82 @@ const LineagePage = () => {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '1rem', overflowY: 'auto', paddingRight: '0.5rem' }}>
           {extractTasks.map(task => {
              const isRunning = task.status === 'running';
+             const isPaused = task.status === 'paused';
+             const isStopped = task.status === 'stopped';
              const isError = task.status === 'error';
              const isFinished = task.status === 'finished';
-             const statusColor = isError ? 'var(--danger)' : (isFinished ? 'var(--success)' : 'var(--accent)');
-             const statusIcon = isRunning ? <Loader2 size={18} className="spinner" /> : (isError ? <AlertCircle size={18} /> : <CheckCircle size={18} />);
+             
+             let statusColor = 'var(--accent)';
+             
+             let completedChunks = 0;
+             let errorChunks = 0;
+             if (task.chunks && task.chunks.length > 0) {
+                 completedChunks = task.chunks.filter(c => c.status === 'done').length;
+                 errorChunks = task.chunks.filter(c => c.status === 'error').length;
+             }
+             const percent = task.chunks && task.chunks.length > 0 ? Math.round((completedChunks / task.chunks.length) * 100) : 0;
+             const circumference = 2 * Math.PI * 8; // radius 8
+             const strokeDashoffset = circumference - (percent / 100) * circumference;
+             
+             let statusIcon = isRunning ? (
+                <div style={{ position: 'relative', width: '24px', height: '24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <svg width="24" height="24" viewBox="0 0 24 24" style={{ transform: 'rotate(-90deg)' }}>
+                        <circle cx="12" cy="12" r="8" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="2" />
+                        <circle cx="12" cy="12" r="8" fill="none" stroke="var(--accent)" strokeWidth="2" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} style={{ transition: 'stroke-dashoffset 0.3s ease' }} />
+                    </svg>
+                    <span style={{ position: 'absolute', fontSize: '0.45rem', fontWeight: 'bold' }}>{percent}%</span>
+                </div>
+             ) : <Loader2 size={18} className="spinner" />;
+             
+             if (isError) { statusColor = 'var(--danger)'; statusIcon = <AlertCircle size={18} />; }
+             else if (isFinished) { statusColor = 'var(--success)'; statusIcon = <CheckCircle size={18} />; }
+             else if (isPaused) { statusColor = 'var(--warning)'; statusIcon = <PauseCircle size={18} />; }
+             else if (isStopped) { statusColor = 'var(--text-muted)'; statusIcon = <StopCircle size={18} />; }
 
              return (
-               <div key={task.id} className="glass-panel" style={{ padding: '1.5rem', border: `1px solid ${statusColor}`, marginBottom: '1rem' }}>
+               <div key={task.id} className="glass-panel" style={{ padding: '1.5rem', border: `1px solid ${statusColor}`, marginBottom: '1rem', transition: 'all 0.3s' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 500, color: statusColor }}>
-                          {statusIcon} {task.filename}
+                          {statusIcon} {task.filename} {isPaused && '(已暂停)'} {isStopped && '(已停止)'}
                       </div>
-                      {task.status !== 'running' && (
-                          <button className="icon-btn" onClick={() => removeTask(task.id)} title="清除日志" style={{ padding: '0.2rem' }}>
-                              <X size={16} />
-                          </button>
-                      )}
+                      <div style={{ display: 'flex', gap: '0.5rem' }}>
+                          {isRunning && (
+                              <button className="secondary icon-btn" onClick={() => controlTask(task.id, 'pause')} title="暂停" style={{ padding: '0.3rem' }}>
+                                  <PauseCircle size={16} />
+                              </button>
+                          )}
+                          {isPaused && (
+                              <button className="primary icon-btn" onClick={() => controlTask(task.id, 'resume')} title="继续" style={{ padding: '0.3rem' }}>
+                                  <PlayCircle size={16} />
+                              </button>
+                          )}
+                          {(isRunning || isPaused) && (
+                              <button className="danger icon-btn" onClick={() => controlTask(task.id, 'stop')} title="停止" style={{ padding: '0.3rem', backgroundColor: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderColor: 'rgba(239, 68, 68, 0.3)' }}>
+                                  <StopCircle size={16} />
+                              </button>
+                          )}
+                          {(!isRunning && !isPaused) && errorChunks > 0 && (
+                              <button className="primary icon-btn" onClick={() => retryFailedTask(task.id, task.filename)} title="重试失败的块" style={{ padding: '0.3rem', fontSize: '0.8rem', gap: '0.2rem' }}>
+                                  <RefreshCw size={14} /> 重试失败 ({errorChunks})
+                              </button>
+                          )}
+                          {(!isRunning && !isPaused) && (
+                              <button className="icon-btn" onClick={() => removeTask(task.id)} title="清除记录" style={{ padding: '0.3rem' }}>
+                                  <X size={16} />
+                              </button>
+                          )}
+                      </div>
                   </div>
                   
-                  {isRunning && task.progress.total > 0 && (
-                      <div style={{ width: '100%', backgroundColor: 'rgba(0,0,0,0.5)', height: '6px', borderRadius: '3px', marginBottom: '1rem', overflow: 'hidden' }}>
-                          <div style={{ 
-                              width: `${(task.progress.current / task.progress.total) * 100}%`, 
-                              backgroundColor: 'var(--accent)', 
-                              height: '100%', 
-                              transition: 'width 0.3s ease' 
-                          }} />
+                  {task.chunks && task.chunks.length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', marginBottom: '1rem', backgroundColor: 'rgba(0,0,0,0.2)', padding: '0.5rem', borderRadius: '4px' }}>
+                          {task.chunks.map((chunk, idx) => {
+                              let bgColor = 'rgba(255,255,255,0.1)'; // pending
+                              if (chunk.status === 'running') bgColor = 'var(--accent)';
+                              else if (chunk.status === 'done') bgColor = 'var(--success)';
+                              else if (chunk.status === 'error') bgColor = 'var(--danger)';
+                              return <div key={idx} title={`Chunk ${idx+1} - ${chunk.status}`} style={{ width: '10px', height: '14px', backgroundColor: bgColor, borderRadius: '2px', transition: 'background-color 0.3s' }} />;
+                          })}
                       </div>
                   )}
                   
@@ -91,6 +156,37 @@ const LineagePage = () => {
                </div>
              );
           })}
+        </div>
+      )}
+      
+      {pendingUploadFile && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(4px)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 100 }}>
+          <div className="glass-panel animate-fade-in" style={{ width: '500px', maxWidth: '90%', padding: '2rem', display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+            <div>
+              <h2 style={{ margin: '0 0 0.5rem 0' }}>开始血缘解析</h2>
+              <p style={{ color: 'var(--text-muted)', margin: 0 }}>已选择文件: <strong>{pendingUploadFile.name}</strong></p>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+              <label style={{ fontSize: '0.9rem', color: 'var(--text-main)' }}>用户提示词 (可选)</label>
+              <textarea 
+                value={uploadPrompt}
+                onChange={e => setUploadPrompt(e.target.value)}
+                placeholder="您可以提供一些关于这份文件内容的上下文说明，帮助 AI 更精准地解析血缘结构。例如：“status=1 表示有效数据”、“该文件只包含用户行为流水”等..."
+                style={{ minHeight: '200px', height: '250px', resize: 'vertical', fontSize: '0.95rem', lineHeight: '1.5' }}
+              />
+            </div>
+            
+            <div style={{ display: 'flex', gap: '1rem', justifyContent: 'flex-end', marginTop: '0.5rem' }}>
+              <button className="secondary" onClick={cancelUpload}>
+                取消
+              </button>
+              <button className="primary" onClick={confirmUpload}>
+                <UploadCloud size={16} />
+                开始解析
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,9 +1,9 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse, Response
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import json
 import os
 from database import db_manager, DBConfig
@@ -235,13 +235,28 @@ def get_table_fields(schema_name: str, table_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+from typing import Union, Optional
+
+class KnowledgeItem(BaseModel):
+    content: str
+    target: Optional[str] = ""
+
 class ApproveKnowledgeRequest(BaseModel):
-    items: list[str]
+    items: list[Union[str, KnowledgeItem]]
 
 @app.post("/api/knowledge/approve")
 def approve_knowledge(req: ApproveKnowledgeRequest):
     try:
-        rag_manager.add_knowledge(req.items)
+        contents = []
+        metadatas = []
+        for item in req.items:
+            if isinstance(item, str):
+                contents.append(item)
+                metadatas.append({"target": ""})
+            else:
+                contents.append(item.content)
+                metadatas.append({"target": item.target})
+        rag_manager.add_knowledge(contents, metadatas=metadatas)
         return {"status": "success", "message": f"Added {len(req.items)} knowledge items."}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -253,13 +268,87 @@ def get_knowledge():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/knowledge/export")
+def export_knowledge():
+    try:
+        data = rag_manager.get_all_knowledge()
+        return Response(content=json.dumps(data, ensure_ascii=False, indent=2), media_type="application/json", headers={"Content-Disposition": "attachment; filename=knowledge_export.json"})
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/api/knowledge/import_preview")
+async def import_preview(file: UploadFile = File(...)):
+    try:
+        content = await file.read()
+        items = json.loads(content)
+        
+        existing = rag_manager.get_all_knowledge()
+        existing_contents = {item['content']: item for item in existing}
+        existing_targets = {item['target']: item for item in existing if item.get('target')}
+        
+        diff = []
+        for index, item in enumerate(items):
+            content_val = item.get('content', '')
+            target_val = item.get('target') or item.get('metadata', {}).get('target', '')
+            
+            provided_id = item.get('id')
+            matched_by_id = next((x for x in existing if x['id'] == provided_id), None) if provided_id else None
+            
+            if matched_by_id:
+                if matched_by_id['content'] == content_val:
+                    diff.append({"action": "skip", "reason": "identical content", "item": item})
+                else:
+                    diff.append({"action": "update", "existing_id": matched_by_id['id'], "old_content": matched_by_id['content'], "new_content": content_val, "target": target_val, "item": item})
+            elif content_val in existing_contents:
+                diff.append({"action": "skip", "reason": "content already exists", "item": item})
+            elif target_val and target_val in existing_targets:
+                existing_item = existing_targets[target_val]
+                diff.append({"action": "update", "existing_id": existing_item['id'], "old_content": existing_item['content'], "new_content": content_val, "target": target_val, "item": item})
+            else:
+                diff.append({"action": "add", "content": content_val, "target": target_val, "item": item})
+                
+        return {"status": "success", "diff": diff}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+class ImportConfirmRequest(BaseModel):
+    updates: List[Dict[str, Any]]
+    adds: List[Dict[str, Any]]
+
+@app.post("/api/knowledge/import_confirm")
+def import_confirm(req: ImportConfirmRequest):
+    try:
+        for update in req.updates:
+            item = update['item']
+            target = item.get('target') or item.get('metadata', {}).get('target', '')
+            rag_manager.update_knowledge(update['existing_id'], item['content'], metadata={"target": target})
+            
+        contents = []
+        metadatas = []
+        for add in req.adds:
+            item = add['item']
+            target = item.get('target') or item.get('metadata', {}).get('target', '')
+            contents.append(item['content'])
+            metadatas.append({"target": target})
+            
+        if contents:
+            rag_manager.add_knowledge(contents, metadatas=metadatas)
+            
+        return {"status": "success", "message": f"Updated {len(req.updates)} items, added {len(req.adds)} items."}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 class UpdateKnowledgeRequest(BaseModel):
     content: str
+    target: Optional[str] = None
 
 @app.put("/api/knowledge/{knowledge_id}")
 def update_knowledge(knowledge_id: str, req: UpdateKnowledgeRequest):
     try:
-        rag_manager.update_knowledge(knowledge_id, req.content)
+        metadata = {}
+        if req.target is not None:
+            metadata["target"] = req.target
+        rag_manager.update_knowledge(knowledge_id, req.content, metadata=metadata if metadata else None)
         return {"status": "success"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -272,19 +361,59 @@ def delete_knowledge(knowledge_id: str):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-from fastapi import UploadFile, File
+
 from lineage_extractor import extract_lineage_stream
 
 @app.post("/api/knowledge/extract_from_csv")
-async def extract_knowledge_from_csv(file: UploadFile = File(...)):
+async def extract_knowledge_from_csv(file: UploadFile = File(...), prompt: Optional[str] = Form(None), task_id: Optional[str] = Form(None)):
     try:
         file_bytes = await file.read()
         return StreamingResponse(
-            extract_lineage_stream(file_bytes, file.filename),
+            extract_lineage_stream(file_bytes, file.filename, user_prompt=prompt, task_id=task_id),
             media_type="text/event-stream"
         )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+class RetryFailedRequest(BaseModel):
+    task_id: str
+    new_task_id: str
+    prompt: Optional[str] = None
+    is_sql: bool = False
+
+@app.post("/api/knowledge/retry_failed")
+def retry_failed(req: RetryFailedRequest):
+    from lineage_extractor import FAILED_CHUNKS, extract_lineage_stream
+    if req.task_id not in FAILED_CHUNKS or not FAILED_CHUNKS[req.task_id]:
+        raise HTTPException(status_code=404, detail="No failed chunks found for this task")
+        
+    failed_items = FAILED_CHUNKS[req.task_id]
+    
+    # Do not clear immediately in case the new connection drops, but we can rely on the new task to collect its own failures
+    # Let's just clear it from the old task ID
+    del FAILED_CHUNKS[req.task_id]
+    
+    return StreamingResponse(
+        extract_lineage_stream(b'', "", user_prompt=req.prompt, task_id=req.new_task_id, items_override=failed_items, is_sql_override=req.is_sql),
+        media_type="text/event-stream"
+    )
+
+@app.post("/api/task/{task_id}/{action}")
+def control_task(task_id: str, action: str):
+    from lineage_extractor import TASK_STATES
+    if action not in ["pause", "resume", "stop"]:
+        raise HTTPException(status_code=400, detail="Invalid action")
+    
+    if task_id in TASK_STATES:
+        if action == "resume":
+            TASK_STATES[task_id] = "running"
+        elif action == "pause":
+            TASK_STATES[task_id] = "paused"
+        elif action == "stop":
+            TASK_STATES[task_id] = "stopped"
+        return {"status": "success", "state": TASK_STATES[task_id]}
+    else:
+        raise HTTPException(status_code=404, detail="Task not found")
 
 @app.get("/api/analytics")
 def get_analytics():
@@ -311,6 +440,10 @@ else:
 if os.path.exists(frontend_dist):
     app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
     
+    @app.get("/OG.ico")
+    def serve_favicon():
+        return FileResponse(os.path.join(frontend_dist, "OG.ico"))
+        
     @app.get("/{full_path:path}")
     def serve_frontend(full_path: str):
         return FileResponse(os.path.join(frontend_dist, "index.html"))

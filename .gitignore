@@ -29,3 +29,5 @@ backend/app_config.json
 .vscode/
 *.swp
 *.swo
+backend/local_chroma_db/
+*.csv
