@@ -2,6 +2,8 @@ import os
 import subprocess
 import sys
 import platform
+import datetime
+import re
 
 def main():
     print("正在准备打包成单文件可执行程序...")
@@ -14,6 +16,19 @@ def main():
     
     frontend_dir = os.path.join(root_dir, "frontend")
     dist_dir = os.path.join(frontend_dir, "dist")
+    
+    # 动态生成版本号
+    now = datetime.datetime.now()
+    version_str = f"v{now.strftime('%y.%m.%d.%H')}"
+    print(f"当前打包版本号: {version_str}")
+    
+    # 修改前端页面标题
+    index_path = os.path.join(frontend_dir, "index.html")
+    with open(index_path, "r", encoding="utf-8") as f:
+        html_content = f.read()
+    html_content = re.sub(r'<title>Data\.OG 造数工具 v[\d\.]+</title>', f'<title>Data.OG 造数工具 {version_str}</title>', html_content)
+    with open(index_path, "w", encoding="utf-8") as f:
+        f.write(html_content)
     
     # 1. 彻底清理前端旧缓存
     print("正在清理前端构建缓存...")
@@ -41,7 +56,7 @@ def main():
     # 构建打包命令
     separator = ";" if platform.system() == "Windows" else ":"
     
-    exe_name = "DataOG_v26.07.05.17"
+    exe_name = f"DataOG_{version_str}"
     
     cmd = [
         sys.executable, "-m", "PyInstaller",
