@@ -57,15 +57,19 @@ def main():
             print("错误：前端构建失败，请检查 npm 环境或代码。")
             sys.exit(1)
         
-    # 安装 pyinstaller
+    backend_dir = os.path.join(root_dir, "backend")
+    
+    # 安装 pyinstaller 和后端依赖
     if skip_pyinstaller_upgrade:
         print("跳过 PyInstaller 依赖更新...")
     else:
-        print("安装/更新 PyInstaller...")
+        print("安装/更新 PyInstaller 及后端依赖...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller", "--upgrade"])
+        req_path = os.path.join(backend_dir, "requirements.txt")
+        if os.path.exists(req_path):
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], cwd=backend_dir)
     
     # 清理 PyInstaller 缓存
-    backend_dir = os.path.join(root_dir, "backend")
     build_dir = os.path.join(backend_dir, "build")
     if os.path.exists(build_dir):
         shutil.rmtree(build_dir)
