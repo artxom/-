@@ -35,14 +35,6 @@ def main():
     version_str = f"v{now.strftime('%y')}.{now.month}.{now.day}.{now.hour}"
     print(f"当前打包版本号: {version_str}")
     
-    # 修改前端页面标题
-    index_path = os.path.join(frontend_dir, "index.html")
-    with open(index_path, "r", encoding="utf-8") as f:
-        html_content = f.read()
-    html_content = re.sub(r'<title>Data\.OG 造数工具 v[\d\.]+</title>', f'<title>Data.OG 造数工具 {version_str}</title>', html_content)
-    with open(index_path, "w", encoding="utf-8") as f:
-        f.write(html_content)
-    
     # 1. 彻底清理前端旧缓存 (如果完全构建的话)
     if not skip_npm_install:
         print("正在清理前端构建缓存...")
