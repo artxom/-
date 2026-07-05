@@ -86,14 +86,32 @@ def main():
     req_path = os.path.join(backend_dir, "requirements.txt")
     auto_deps_args = []
     if os.path.exists(req_path):
+        import importlib.metadata
         with open(req_path, "r", encoding="utf-8") as f:
             for line in f:
                 pkg = line.strip().split("==")[0].strip()
                 # 过滤掉注释、空行
                 if pkg and not pkg.startswith("#"):
-                    auto_deps_args.extend(["--copy-metadata", pkg])
+                    # 安全检查：只有当系统中真的存在该包的 metadata 时，才加入 --copy-metadata，防止 PyInstaller 报错崩溃
+                    # 有些包名带中划线，系统里可能是下划线
+                    pkg_names_to_try = [pkg, pkg.replace('-', '_')]
+                    metadata_found = False
+                    for p in pkg_names_to_try:
+                        try:
+                            importlib.metadata.distribution(p)
+                            auto_deps_args.extend(["--copy-metadata", p])
+                            metadata_found = True
+                            break
+                        except Exception:
+                            pass
+                    
+                    if not metadata_found:
+                        print(f"[警告] 无法找到包 {pkg} 的元数据，跳过 --copy-metadata")
+                        
                     # 对于一些知名的 pip 包名和 import 模块名不一致的，PyInstaller 往往无法自动追踪
                     auto_deps_args.extend(["--hidden-import", pkg])
+                    if '-' in pkg:
+                        auto_deps_args.extend(["--hidden-import", pkg.replace('-', '_')])
     
     exe_name = f"DataOG_{version_str}"
     
