@@ -1,101 +1,199 @@
-import chromadb
-from chromadb.utils import embedding_functions
+import sqlite3
 import uuid
+import os
 from typing import List, Dict, Any
+from datetime import datetime
 
 class RAGManager:
-    def __init__(self, db_path="./local_chroma_db", collection_name="knowledge_base"):
+    def __init__(self, db_path="knowledge_base.sqlite"):
         self.db_path = db_path
-        self.collection_name = collection_name
-        self.client = chromadb.PersistentClient(path=self.db_path)
-        
-        # By not specifying an embedding_function, Chroma automatically uses its lightweight DefaultEmbeddingFunction (ONNX)
-        # This completely eliminates the massive and fragile sentence_transformers/PyTorch dependencies for PyInstaller.
-        self.collection = self.client.get_or_create_collection(
-            name=self.collection_name
-        )
+        self._init_db()
+
+    def _get_conn(self):
+        # We use check_same_thread=False because FastAPI handles connections concurrently,
+        # but SQLite handles concurrency safely as long as we don't hold long write locks.
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_db(self):
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            # 基础表
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS knowledge_docs (
+                    id TEXT PRIMARY KEY,
+                    content TEXT,
+                    target TEXT,
+                    created_at TEXT
+                )
+            """)
+            # FTS5 虚拟表，使用 unicode61 分词器以更好支持中文和英文符号
+            cursor.execute("""
+                CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
+                    content,
+                    target,
+                    content="knowledge_docs",
+                    content_rowid="rowid",
+                    tokenize="unicode61"
+                )
+            """)
+            
+            # 触发器：自动同步数据到 FTS 表 (INSERT)
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON knowledge_docs BEGIN
+                    INSERT INTO knowledge_fts(rowid, content, target) 
+                    VALUES (new.rowid, new.content, new.target);
+                END;
+            """)
+            # 触发器：自动同步数据到 FTS 表 (DELETE)
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON knowledge_docs BEGIN
+                    INSERT INTO knowledge_fts(knowledge_fts, rowid, content, target) 
+                    VALUES('delete', old.rowid, old.content, old.target);
+                END;
+            """)
+            # 触发器：自动同步数据到 FTS 表 (UPDATE)
+            cursor.execute("""
+                CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE ON knowledge_docs BEGIN
+                    INSERT INTO knowledge_fts(knowledge_fts, rowid, content, target) 
+                    VALUES('delete', old.rowid, old.content, old.target);
+                    INSERT INTO knowledge_fts(rowid, content, target) 
+                    VALUES (new.rowid, new.content, new.target);
+                END;
+            """)
+            conn.commit()
 
     def add_knowledge(self, contents: List[str], metadatas: List[Dict[str, Any]] = None):
         if not contents:
             return
             
-        ids = [str(uuid.uuid4()) for _ in contents]
-        
-        from datetime import datetime
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        final_metadatas = []
-        for i, meta in enumerate(metadatas or [{}] * len(contents)):
-            new_meta = dict(meta or {})
-            if "created_at" not in new_meta:
-                new_meta["created_at"] = now
-            if "target" not in new_meta:
-                new_meta["target"] = ""
-            final_metadatas.append(new_meta)
-
-        self.collection.add(
-            documents=contents,
-            metadatas=final_metadatas,
-            ids=ids
-        )
+        
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            for i, content in enumerate(contents):
+                meta = metadatas[i] if metadatas and i < len(metadatas) else {}
+                doc_id = str(uuid.uuid4())
+                target = meta.get("target", "")
+                created_at = meta.get("created_at", now)
+                
+                cursor.execute(
+                    "INSERT INTO knowledge_docs (id, content, target, created_at) VALUES (?, ?, ?, ?)",
+                    (doc_id, content, target, created_at)
+                )
+            conn.commit()
 
     def search_knowledge(self, query: str, top_k: int = 3) -> List[Dict[str, Any]]:
-        results = self.collection.query(
-            query_texts=[query],
-            n_results=top_k
-        )
-        
-        # Format the results
-        formatted_results = []
-        if results and results['documents'] and len(results['documents']) > 0:
-            docs = results['documents'][0]
-            metas = results['metadatas'][0] if 'metadatas' in results and results['metadatas'] else [{}] * len(docs)
-            distances = results['distances'][0] if 'distances' in results and results['distances'] else [0] * len(docs)
+        if not query.strip():
+            return []
             
-            for doc, meta, dist in zip(docs, metas, distances):
-                formatted_results.append({
-                    "content": doc,
-                    "metadata": meta,
-                    "distance": dist
-                })
+        # 预处理查询词：将查询中的空格或特殊符号转换为 FTS 支持的查询格式 (OR 连接或者逐字匹配)
+        # 简单起见，我们将查询包裹在双引号中进行短语匹配，或者将多个词用 OR 连接
+        # 为了应对 SQL 生成场景，直接按原样加上 * 通配符进行匹配效果较好
+        safe_query = query.replace('"', '""').replace("'", "''")
+        
+        # 采用 FTS5 的 BM25 算法计算相关性评分
+        sql = """
+            SELECT d.id, d.content, d.target, d.created_at, bm25(knowledge_fts) as score
+            FROM knowledge_fts f
+            JOIN knowledge_docs d ON f.rowid = d.rowid
+            WHERE knowledge_fts MATCH ?
+            ORDER BY score LIMIT ?
+        """
+        
+        # 构造 match 查询: 使用多个关键词的隐式 AND/OR，这里简单将 query 变成一个短语或通配符匹配
+        # 将句子拆分为简单的字块进行模糊匹配
+        terms = [t for t in safe_query.split() if t]
+        if not terms:
+            match_str = f'"{safe_query}"'
+        else:
+            match_str = " OR ".join([f'"{t}"*' for t in terms])
+        
+        formatted_results = []
+        try:
+            with self._get_conn() as conn:
+                cursor = conn.cursor()
+                cursor.execute(sql, (match_str, top_k))
+                rows = cursor.fetchall()
                 
+                for row in rows:
+                    meta = {
+                        "target": row["target"],
+                        "created_at": row["created_at"]
+                    }
+                    formatted_results.append({
+                        "id": row["id"],
+                        "content": row["content"],
+                        "metadata": meta,
+                        "distance": row["score"]  # BM25 score (smaller is usually better in SQLite BM25, actually it's more negative is better! SQLite bm25 returns negative values for better matches)
+                    })
+        except Exception as e:
+            # 如果 FTS 语法解析失败（比如用户输入了特殊符号），降级为简单的 LIKE 模糊查询
+            fallback_sql = """
+                SELECT id, content, target, created_at
+                FROM knowledge_docs
+                WHERE content LIKE ? OR target LIKE ?
+                LIMIT ?
+            """
+            like_str = f"%{safe_query}%"
+            with self._get_conn() as conn:
+                cursor = conn.cursor()
+                cursor.execute(fallback_sql, (like_str, like_str, top_k))
+                rows = cursor.fetchall()
+                for row in rows:
+                    meta = {
+                        "target": row["target"],
+                        "created_at": row["created_at"]
+                    }
+                    formatted_results.append({
+                        "id": row["id"],
+                        "content": row["content"],
+                        "metadata": meta,
+                        "distance": -1.0 # mock score
+                    })
+
         return formatted_results
 
     def get_all_knowledge(self) -> List[Dict[str, Any]]:
-        results = self.collection.get()
         formatted_results = []
-        if results and results['documents']:
-            docs = results['documents']
-            metas = results['metadatas'] if 'metadatas' in results and results['metadatas'] else [{}] * len(docs)
-            ids = results['ids']
-            
-            for doc, meta, doc_id in zip(docs, metas, ids):
-                safe_meta = meta or {}
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, content, target, created_at FROM knowledge_docs ORDER BY created_at DESC")
+            rows = cursor.fetchall()
+            for row in rows:
+                meta = {
+                    "target": row["target"],
+                    "created_at": row["created_at"]
+                }
                 formatted_results.append({
-                    "id": doc_id,
-                    "content": doc,
-                    "target": safe_meta.get("target", ""),
-                    "created_at": safe_meta.get("created_at", ""),
-                    "metadata": safe_meta
+                    "id": row["id"],
+                    "content": row["content"],
+                    "target": row["target"],
+                    "created_at": row["created_at"],
+                    "metadata": meta
                 })
         return formatted_results
 
     def update_knowledge(self, doc_id: str, new_content: str, metadata: Dict[str, Any] = None):
-        existing_res = self.collection.get(ids=[doc_id])
-        if not existing_res or not existing_res['documents']:
-            return
-            
-        existing_meta = existing_res['metadatas'][0] if existing_res['metadatas'] and existing_res['metadatas'][0] else {}
-        
-        if metadata:
-            existing_meta.update(metadata)
-            
-        self.collection.update(
-            ids=[doc_id],
-            documents=[new_content],
-            metadatas=[existing_meta]
-        )
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            if metadata and "target" in metadata:
+                cursor.execute(
+                    "UPDATE knowledge_docs SET content = ?, target = ? WHERE id = ?",
+                    (new_content, metadata["target"], doc_id)
+                )
+            else:
+                cursor.execute(
+                    "UPDATE knowledge_docs SET content = ? WHERE id = ?",
+                    (new_content, doc_id)
+                )
+            conn.commit()
 
     def delete_knowledge(self, doc_id: str):
-        self.collection.delete(ids=[doc_id])
+        with self._get_conn() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM knowledge_docs WHERE id = ?", (doc_id,))
+            conn.commit()
 
 rag_manager = RAGManager()

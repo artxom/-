@@ -9,18 +9,6 @@ import os
 import sys
 import shutil
 
-# --- 离线环境零依赖改造 ---
-# 在加载 RAG 和 Chroma 之前，把打包进 EXE 的离线向量模型释放到系统缓存目录中，
-# 从而彻底斩断 Chroma 对外网的依赖，实现单文件在纯内网环境下的 100% 离线使用！
-if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-    bundled_model_dir = os.path.join(sys._MEIPASS, "models", "all-MiniLM-L6-v2")
-    target_cache_dir = os.path.expanduser("~/.cache/chroma/onnx_models/all-MiniLM-L6-v2")
-    if os.path.exists(bundled_model_dir) and not os.path.exists(target_cache_dir):
-        print("首次在内网环境运行：正在释放自带的内置向量模型...")
-        os.makedirs(os.path.dirname(target_cache_dir), exist_ok=True)
-        shutil.copytree(bundled_model_dir, target_cache_dir)
-# ------------------------
-
 from database import db_manager, DBConfig
 from agent import agent_config, run_agent_loop_stream
 from rag import rag_manager

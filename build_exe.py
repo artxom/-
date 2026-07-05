@@ -66,16 +66,6 @@ def main():
         print("安装/更新 PyInstaller 及后端依赖...")
         subprocess.check_call([sys.executable, "-m", "pip", "install", "pyinstaller", "--upgrade"])
         req_path = os.path.join(backend_dir, "requirements.txt")
-        if os.path.exists(req_path):
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"], cwd=backend_dir)
-    
-    # 离线环境支持：由于模型已经直接内置于 Git 仓库中 (models/all-MiniLM-L6-v2)，
-    # 此处不需要再从 S3 下载，只需要确保它被打包进 exe 即可。
-    model_dir = os.path.join(backend_dir, "models", "all-MiniLM-L6-v2")
-    if not os.path.exists(model_dir):
-        print(f"[警告] 离线模型文件夹不存在: {model_dir}，可能是拉取代码时缺失。")
-
-    
     # 清理 PyInstaller 缓存
     build_dir = os.path.join(backend_dir, "build")
     if os.path.exists(build_dir):
@@ -127,7 +117,6 @@ def main():
         "--icon", "../OG.ico",
         "--add-data", f"../frontend/dist{separator}frontend/dist",
         "--add-data", f"../OG.ico{separator}.",
-        "--add-data", f"models{separator}models",
         "--hidden-import", "uvicorn",
         "--hidden-import", "backend.main",
         "--hidden-import", "main",
