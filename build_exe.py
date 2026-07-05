@@ -17,9 +17,9 @@ def main():
     frontend_dir = os.path.join(root_dir, "frontend")
     dist_dir = os.path.join(frontend_dir, "dist")
     
-    # 动态生成版本号
+    # 动态生成版本号 (不补零)
     now = datetime.datetime.now()
-    version_str = f"v{now.strftime('%y.%m.%d.%H')}"
+    version_str = f"v{now.strftime('%y')}.{now.month}.{now.day}.{now.hour}"
     print(f"当前打包版本号: {version_str}")
     
     # 修改前端页面标题
